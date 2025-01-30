@@ -2,6 +2,7 @@
 // vim: ts=8 sw=2 smarttab
 
 #include "Allocator.h"
+#include "AllocatorBase.h"
 #include <bit>
 #include "StupidAllocator.h"
 #include "BitmapAllocator.h"
@@ -125,7 +126,7 @@ public:
         return -EINVAL;
       }
 
-      Allocator::FreeStateHistogram hist(num_buckets);
+      AllocatorBase::FreeStateHistogram hist(num_buckets);
       alloc->foreach(
         [&](size_t off, size_t len) {
           hist.record_extent(uint64_t(alloc_unit), off, len);
@@ -150,6 +151,7 @@ public:
   }
 
 };
+
 Allocator::Allocator(std::string_view name,
                      int64_t _capacity,
                      int64_t _block_size)
@@ -275,40 +277,3 @@ double Allocator::get_fragmentation_score()
   return (ideal - score_sum) / (ideal - terrible);
 }
 
-/*************
-* Allocator::FreeStateHistogram
-*************/
-using std::function;
-
-void Allocator::FreeStateHistogram::record_extent(uint64_t alloc_unit,
-                                                  uint64_t off,
-                                                  uint64_t len)
-{
-  size_t idx = myTraits._get_bucket(len);
-  ceph_assert(idx < buckets.size());
-  ++buckets[idx].total;
-
-  // now calculate the bucket for the chunk after alignment,
-  // resulting chunks shorter than alloc_unit are discarded
-  auto delta = p2roundup(off, alloc_unit) - off;
-  if (len >= delta + alloc_unit) {
-    len -= delta;
-    idx = myTraits._get_bucket(len);
-    ceph_assert(idx < buckets.size());
-    ++buckets[idx].aligned;
-    buckets[idx].alloc_units += len / alloc_unit;
-  }
-}
-void Allocator::FreeStateHistogram::foreach(
-  function<void(uint64_t max_len,
-                uint64_t total,
-                uint64_t aligned,
-                uint64_t unit)> cb)
-{
-  size_t i = 0;
-  for (const auto& b : buckets) {
-    cb(myTraits._get_bucket_max(i),
-      b.total, b.aligned, b.alloc_units);
-    ++i;
-  }
-}

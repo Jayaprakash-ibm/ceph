@@ -83,6 +83,22 @@ namespace ceph {
     abort();
   }
 
+  [[gnu::cold]] void __ceph_assert_fail_skippable(const char *assertion,
+						  const char *file, int line,
+						  const char *func)
+  {
+    auto bypasses = get_str_list(
+	g_assert_context->_conf.get_val<std::string>("disaster_recovery_bypass_assert"));
+
+    std::string target = fmt::format("{}:{}", file, line);
+
+    if (std::none_of(bypasses.begin(), bypasses.end(), [&target](const std::string& bypass) {
+            return bypass == target;
+        })) {
+        __ceph_assert_fail(assertion, file, line, func);
+    }
+  }
+
   [[gnu::cold]] void __ceph_assert_fail(const assert_data &ctx)
   {
     __ceph_assert_fail(ctx.assertion, ctx.file, ctx.line, ctx.function);

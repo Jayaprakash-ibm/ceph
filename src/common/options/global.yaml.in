@@ -6718,3 +6718,7 @@ options:
   desc: Enables exception throwing instead of process abort on transaction submission error.
   default: false
   with_legacy: false
+- name: disaster_recovery_bypass_assert
+  type: str
+  level: dev
+  with_legacy: false

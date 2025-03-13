@@ -65,6 +65,8 @@ extern void __ceph_assert_warn(const char *assertion, const char *file, int line
 [[noreturn]] void __ceph_abortf(const char *file, int line, const char *func,
                                 const char* msg, ...);
 
+void __ceph_assert_fail_skippable(const char *assertion, const char *file, int line, const char *func);
+
 #define _CEPH_ASSERT_VOID_CAST static_cast<void>
 
 #define assert_warn(expr)							\
@@ -105,7 +107,7 @@ using namespace ceph;
    {__STRING(expr), __FILE__, __LINE__, __CEPH_ASSERT_FUNCTION}; \
    ((expr) \
    ? _CEPH_ASSERT_VOID_CAST (0) \
-    : ::ceph::__ceph_assert_fail(assert_data_ctx)); } while(false)
+    : ::ceph::__ceph_assert_fail_skippable(assert_data_ctx.assertion, assert_data_ctx.file, assert_data_ctx.line, assert_data_ctx.function)); } while(false)
 #endif
 
 // this variant will *never* get compiled out to NDEBUG in the future.

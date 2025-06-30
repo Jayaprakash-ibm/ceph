@@ -56,6 +56,7 @@
 #include "common/numa.h"
 #include "common/pretty_binary.h"
 #include "common/WorkQueue.h"
+#include "common/cputrace.h"
 #include "kv/KeyValueHistogram.h"
 #include "Writer.h"
 #include "Compression.h"
@@ -3930,6 +3931,7 @@ bool BlueStore::ExtentMap::encode_some(
   bool complain_extent_overlap,
   bool complain_shard_spanning)
 {
+  HWProfileFunctionF(profile, __FUNCTION__, HW_PROFILE_CYC | HW_PROFILE_CMISS | HW_PROFILE_INS | HW_PROFILE_BMISS | HW_PROFILE_SWI);
   Extent dummy(offset);
   auto start = extent_map.lower_bound(dummy);
   uint32_t end = offset + length;
@@ -17747,6 +17749,7 @@ int BlueStore::_write(TransContext *txc,
 		      bufferlist& bl,
 		      uint32_t fadvise_flags)
 {
+  HWProfileFunctionF(profile, __FUNCTION__, HW_PROFILE_CYC | HW_PROFILE_CMISS | HW_PROFILE_INS | HW_PROFILE_BMISS | HW_PROFILE_SWI);
   dout(15) << __func__ << " " << c->cid << " " << o->oid
 	   << " 0x" << std::hex << offset << "~" << length << std::dec
 	   << dendl;

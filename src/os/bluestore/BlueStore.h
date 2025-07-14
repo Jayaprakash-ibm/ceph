@@ -645,16 +645,16 @@ public:
     std::atomic_int nref = {0};     ///< reference count
     int16_t id = -1;                ///< id, for spanning blobs only, >= 0
     int16_t last_encoded_id = -1;   ///< (ephemeral) used during encoding only
-    CollectionRef collection;
+    Onode* onode;
 
     void set_shared_blob(SharedBlobRef sb) {
       ceph_assert((bool)sb);
       ceph_assert(!shared_blob);
-      ceph_assert(sb->collection = collection);
+      ceph_assert(sb->collection = onode->c);
       shared_blob = sb;
       ceph_assert(get_cache());
     }
-    Blob(CollectionRef collection) : collection(collection) {}
+    Blob(Onode* onode) : onode(onode) {}
   private:
     SharedBlobRef shared_blob;      ///< shared blob state (if any)
     mutable bluestore_blob_t blob;  ///< decoded blob metadata
@@ -768,13 +768,10 @@ public:
       return shared_blob && shared_blob->is_loaded();
     }
     inline BufferCacheShard* get_cache() {
-      return collection ? collection->cache : nullptr;
+      return (onode && onode->c) ? onode->c->cache : nullptr;
     }
     uint64_t get_sbid() const {
       return shared_blob ? shared_blob->get_sbid() : 0;
-    }
-    CollectionRef get_collection() const {
-      return collection;
     }
 
     ~Blob();
@@ -1394,6 +1391,13 @@ public:
       cached = false;
     }
 
+    BlobRef new_blob() {
+      BlobRef b = new Blob(this);
+      if (c) {
+        b->get_cache()->add_blob();
+      }
+      return b;
+    }
     static const std::string& calc_omap_prefix(uint8_t flags);
     static void calc_omap_header(uint8_t flags, const Onode* o,
       std::string* out);
@@ -1671,12 +1675,6 @@ public:
     void load_shared_blob(SharedBlobRef sb);
     void make_blob_shared(uint64_t sbid, BlobRef b);
     uint64_t make_blob_unshared(SharedBlob *sb);
-
-    BlobRef new_blob() {
-      BlobRef b = new Blob(this);
-      b->get_cache()->add_blob();
-      return b;
-    }
 
     bool contains(const ghobject_t& oid) {
       if (cid.is_meta())

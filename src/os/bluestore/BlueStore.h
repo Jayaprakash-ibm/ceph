@@ -38,6 +38,8 @@
 #include <boost/circular_buffer.hpp>
 #include <boost/optional.hpp>
 #include <utility>
+#include <memory_resource>
+#include <new>
 
 #include "include/cpp-btree/btree_set.h"
 
@@ -68,6 +70,62 @@ class Allocator;
 class FreelistManager;
 class BlueStoreRepairer;
 class SimpleBitmap;
+
+class FixedPoolMemoryResource : public std::pmr::memory_resource {
+  void* arena_start;
+  size_t arena_size;
+  size_t arena_offset;
+
+  struct FreeBlock {
+    FreeBlock* next;
+  };
+  FreeBlock* freelist = nullptr;
+  std::mutex mtx;
+
+public:
+  FixedPoolMemoryResource(void* start, size_t size)
+    : arena_start(start), arena_size(size), arena_offset(0) {}
+
+protected:
+  void* do_allocate(size_t bytes, size_t alignment) override {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    if (freelist) {
+      void* p = freelist;
+      freelist = freelist->next;
+      return p;
+    }
+
+    size_t aligned_offset = (arena_offset + alignment - 1) & ~(alignment - 1);
+    if (aligned_offset + bytes > arena_size) {
+      throw std::bad_alloc();
+    }
+
+    void* result = static_cast<char*>(arena_start) + aligned_offset;
+    arena_offset = aligned_offset + bytes;
+    return result;
+  }
+
+  void do_deallocate(void* p, size_t, size_t) override {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    auto* block = static_cast<FreeBlock*>(p);
+    block->next = freelist;
+    freelist = block;
+  }
+
+  bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
+    return this == &other;
+  }
+
+  void reset() {
+    std::lock_guard<std::mutex> lock(mtx);
+    arena_offset = 0;
+    freelist = nullptr;
+  }
+};
+
+
 //#define DEBUG_CACHE
 //#define DEBUG_DEFERRED
 

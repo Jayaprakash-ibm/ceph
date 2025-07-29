@@ -712,7 +712,10 @@ public:
       shared_blob = sb;
       ceph_assert(get_cache());
     }
-    Blob(Onode* onode) : onode(onode) {}
+    Blob(Onode* onode)
+      : onode(onode),
+	used_in_blob(onode->LocalBytesPerAuAllocator) {
+    }
   private:
     SharedBlobRef shared_blob;      ///< shared blob state (if any)
     mutable bluestore_blob_t blob;  ///< decoded blob metadata
@@ -1385,6 +1388,11 @@ public:
     ceph::condition_variable flush_cond;   ///< wait here for uncommitted txns
     std::shared_ptr<int64_t> cache_age_bin;  ///< cache age bin
 
+    static constexpr size_t bytes_per_au_pool_size = sizeof(uint32_t) * 1024;
+    alignas(uint32_t) std::byte bytes_per_au_pool[bytes_per_au_pool_size];
+    FixedPoolMemoryResource bytes_per_au_mem_resource;
+    std::pmr::polymorphic_allocator<uint32_t> LocalBytesPerAuAllocator;
+
     Onode(Collection *c, const ghobject_t& o,
 	  const mempool::bluestore_cache_meta::string& k)
       : c(c),
@@ -1395,7 +1403,9 @@ public:
 	extent_map(this,
 	  c->store->cct->_conf->
 	    bluestore_extent_map_inline_shard_prealloc_size),
-	bc(*this) {
+	bc(*this),
+	bytes_per_au_mem_resource(bytes_per_au_pool, bytes_per_au_pool_size),
+	LocalBytesPerAuAllocator(&bytes_per_au_mem_resource) {
     }
     Onode(CephContext* cct)
       : c(nullptr),
@@ -1404,7 +1414,9 @@ public:
         extent_map(this,
 	  cct->_conf->
 	    bluestore_extent_map_inline_shard_prealloc_size),
-	bc(*this) {
+	bc(*this),
+	bytes_per_au_mem_resource(bytes_per_au_pool, bytes_per_au_pool_size),
+	LocalBytesPerAuAllocator(&bytes_per_au_mem_resource) {
     }
 
     ~Onode() {

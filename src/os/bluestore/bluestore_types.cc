@@ -408,6 +408,7 @@ bluestore_blob_use_tracker_t::bluestore_blob_use_tracker_t(
  : au_size{tracker.au_size},
    num_au(0),
    alloc_au(0),
+   LocalAllocator(tracker.LocalAllocator),
    bytes_per_au{nullptr}
 {
   if (tracker.num_au > 0) {

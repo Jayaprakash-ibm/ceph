@@ -25,6 +25,176 @@
 #include "bluestore_types.h"
 #include "BlueStore.h"
 
+class BitMapMemoryResource : public std::pmr::memory_resource {
+  std::pmr::vector<void*> bases;
+  std::pmr::vector<uint8_t> bitmaps;
+  std::pmr::vector<int> seg;
+  size_t seg_n;
+
+  int slots;
+  size_t slot_size;
+  size_t chunk_size;
+  size_t alignment;
+  mempool::pool_index_t pool;
+
+public:
+  BitMapMemoryResource(size_t slot_sz,
+    int slots,
+    size_t align,
+    mempool::pool_index_t p)
+    : bases(std::pmr::get_default_resource()),
+      bitmaps(std::pmr::get_default_resource()),
+      seg(std::pmr::get_default_resource()),
+      seg_n(0),
+      slots(slots),
+      slot_size(slot_sz),
+      chunk_size(slot_sz * slots),
+      alignment(align),
+      pool(p)
+  {}
+
+  ~BitMapMemoryResource() override {
+    for (size_t i = 0; i < bases.size(); ++i) {
+      if (!bases[i]) continue;
+      int used = std::popcount(bitmaps[i]);
+      ::operator delete(bases[i], std::align_val_t(alignment));
+      if (used > 0) [[likely]] {
+        mempool::get_pool(pool)
+          .adjust_count(-used, -(int)(used * slot_size));
+        mempool::get_pool(
+          mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
+            adjust_count(-(slots - used), (int)((slots - used) * slot_size));
+      } else {
+        mempool::get_pool(
+          mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
+            adjust_count(-(slots), (int)(chunk_size));
+      }
+    }
+  }
+
+protected:
+  void* do_allocate(size_t, size_t) override {
+    int idx = find_free();
+    if (idx == -1) idx = create_and_insert_chunk();
+
+    uint8_t free_mask = static_cast<uint8_t>(~bitmaps[idx]);
+    unsigned b = static_cast<unsigned>(__builtin_ctz(free_mask));
+    bitmaps[idx] |= static_cast<uint8_t>(1u << b);
+    update_seg(idx);
+
+    mempool::get_pool(pool).adjust_count(1, (int)slot_size);
+    mempool::get_pool(
+      mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
+        adjust_count(-1, -(int)slot_size);
+
+    return static_cast<char*>(bases[idx]) + b * slot_size;
+  }
+
+  void do_deallocate(void* p, size_t, size_t) override {
+    if (!p) return;
+    int idx = locate_chunk(p);
+    if (idx < 0) return;
+
+    char* base = static_cast<char*>(bases[idx]);
+    std::ptrdiff_t off_signed = static_cast<char*>(p) - base;
+    size_t off = static_cast<size_t>(off_signed);
+    int slot = off / slot_size;
+
+    bitmaps[idx] &= static_cast<uint8_t>(~(1u << slot));
+    update_seg(idx);
+
+    mempool::get_pool(pool).adjust_count(-1, -(int)slot_size);
+    mempool::get_pool(
+      mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
+        adjust_count(1, (int)slot_size);
+
+    if (bitmaps[idx] == 0) [[unlikely]] {
+      ::operator delete(bases[idx], std::align_val_t(alignment));
+      bases.erase(bases.begin() + idx);
+      bitmaps.erase(bitmaps.begin() + idx);
+      mempool::get_pool(
+        mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
+          adjust_count(-slots, -(int)(chunk_size));
+      rebuild_seg();
+    }
+  }
+
+  bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
+    return this == &other;
+  }
+
+private:
+  int create_and_insert_chunk() {
+    void* m = ::operator new(chunk_size, std::align_val_t(alignment));
+    if (!m) throw std::bad_alloc();
+
+    uint8_t bm = 0;
+    auto it = std::lower_bound(bases.begin(), bases.end(), m);
+    size_t pos = it - bases.begin();
+    bases.insert(bases.begin() + pos, m);
+    bitmaps.insert(bitmaps.begin() + pos, bm);
+    mempool::get_pool(
+      mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
+        adjust_count((int)slots, (int)(chunk_size));
+
+    rebuild_seg();
+    return static_cast<int>(pos);
+  }
+
+  int locate_chunk(void* p) {
+    if (bases.empty()) return -1;
+    auto it = std::lower_bound(bases.begin(), bases.end(), p);
+    size_t idx;
+    if (it == bases.begin()) idx = 0;
+    else if (it == bases.end()) idx = bases.size() - 1;
+    else if (*it == p) idx = it - bases.begin();
+    else idx = (it - bases.begin()) - 1;
+
+    char* base = static_cast<char*>(bases[idx]);
+    if (p < base || static_cast<char*>(p) >= base + chunk_size) return -1;
+    return static_cast<int>(idx);
+  }
+
+  void rebuild_seg() {
+    size_t n = bases.size();
+    size_t sz = 1;
+    while (sz < n) sz <<= 1;
+    seg.assign(2 * sz, 0);
+    seg_n = sz;
+    for (size_t i = 0; i < n; ++i) {
+      seg[sz + i] = static_cast<int>(slots - std::popcount(bitmaps[i]));
+    }
+    for (size_t i = n; i < sz; ++i) {
+      seg[sz + i] = 0;
+    }
+    for (size_t i = sz; i-- > 1;) {
+      seg[i] = seg[i<<1] + seg[(i<<1)|1];
+    }
+  }
+
+  void update_seg(size_t idx) {
+    if (seg_n == 0) { rebuild_seg(); return; }
+    size_t p = seg_n + idx;
+    seg[p] = static_cast<int>(slots - std::popcount(bitmaps[idx]));
+    for (p >>= 1; p >= 1; p >>= 1) {
+      seg[p] = seg[p<<1] + seg[(p<<1)|1];
+      if (p == 1) break;
+    }
+  }
+
+  int find_free() {
+    if (seg_n == 0 || seg[1] == 0) return -1;
+    size_t p = 1;
+    while (p < seg_n) {
+      if (seg[p<<1] > 0) p = p<<1;
+      else p = (p<<1)|1;
+    }
+    int idx = static_cast<int>(p - seg_n);
+    return (idx >= 0 && static_cast<size_t>(idx) < bases.size()) ? idx : -1;
+  }
+};
+
+
 namespace bluestore {
 
   /// in-memory blob metadata and associated cached buffers (if any)
@@ -143,14 +313,7 @@ namespace bluestore {
     void get() {
       ++nref;
     }
-    void put() {
-      if (nref.load(std::memory_order_acquire) == 1) {
-        delete this;
-        return;
-      }
-      if (--nref == 0)
-	delete this;
-    }
+    void put();
     bool is_shared_loaded() const;
     BlueStore::BufferCacheShard* get_cache();
     uint64_t get_sbid() const;
@@ -211,7 +374,6 @@ namespace bluestore {
                               /// (it can be pinned and hence physically out
                               /// of it at the moment though)
     uint16_t prev_spanning_cnt = 0; /// spanning blobs count
-    BlueStore::ExtentMap extent_map;
     BlueStore::BufferSpace bc;             ///< buffer cache
 
     // track txc's that have not been committed to kv store (and whose
@@ -222,6 +384,11 @@ namespace bluestore {
     ceph::mutex flush_lock = ceph::make_mutex("BlueStore::Onode::flush_lock");
     ceph::condition_variable flush_cond;   ///< wait here for uncommitted txns
     std::shared_ptr<int64_t> cache_age_bin;  ///< cache age bin
+
+    BitMapMemoryResource extent_mem_resource;
+    std::pmr::polymorphic_allocator<BlueStore::Extent> LocalExtentAllocator;
+    bool fast_deletion = false;
+    BlueStore::ExtentMap extent_map;
 
     Onode(BlueStore::Collection *c, const ghobject_t& o,
 	  const mempool::bluestore_cache_meta::string& k);
@@ -262,6 +429,28 @@ namespace bluestore {
     }
 
     BlueStore::BlobRef new_blob();
+
+    inline BlueStore::Extent* get_new_extent() {
+      BlueStore::Extent* ne = LocalExtentAllocator.allocate(1);
+      std::construct_at(ne);
+      return ne;
+    }
+
+    inline BlueStore::Extent* get_new_extent(uint32_t lo) {
+      BlueStore::Extent* ne = LocalExtentAllocator.allocate(1);
+      std::construct_at(ne, lo);
+      return ne;
+    }
+    
+    inline BlueStore::Extent* get_new_extent(uint32_t lo,
+      uint32_t o,
+      uint32_t l,
+      BlueStore::BlobRef& b)
+    {
+      BlueStore::Extent* ne = LocalExtentAllocator.allocate(1);
+      std::construct_at(ne, lo, o, l, b);
+      return ne;
+    }
 
     static const std::string& calc_omap_prefix(uint8_t flags);
     static void calc_omap_header(uint8_t flags, const Onode* o,

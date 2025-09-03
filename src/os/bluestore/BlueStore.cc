@@ -2411,7 +2411,8 @@ void BlueStore::ExtentMap::reblob_extents(uint32_t blob_start, uint32_t blob_end
 	prev->length += e->length;
 	ep = extent_map.erase(ep);
 	// we have to manually delete Extent, otherwise memory leak
-	delete e;
+  std::destroy_at(e);
+  onode->LocalExtentAllocator.deallocate(e, 1);
 	// prev still the same
 	continue;
       }
@@ -2566,8 +2567,7 @@ void BlueStore::ExtentMap::dup(BlueStore* b, TransContext* txc,
     } else {
       skip_back = 0;
     }
-
-    Extent* ne = new Extent(e.logical_offset + skip_front + dstoff - srcoff,
+    Extent* ne = newo->get_new_extent(e.logical_offset + skip_front + dstoff - srcoff,
       e.blob_offset + skip_front, e.length - skip_front - skip_back, cb);
     newo->extent_map.extent_map.insert(*ne);
     ne->blob->get_ref(c.get(), ne->blob_offset, ne->length);
@@ -2683,8 +2683,7 @@ void BlueStore::ExtentMap::dup_esb(BlueStore* b, TransContext* txc,
     } else {
       skip_back = 0;
     }
-
-    Extent* ne = new Extent(e.logical_offset + skip_front + dstoff - srcoff,
+    Extent* ne = newo->get_new_extent(e.logical_offset + skip_front + dstoff - srcoff,
       e.blob_offset + skip_front, e.length - skip_front - skip_back, cb);
     newo->extent_map.extent_map.insert(*ne);
     if (e.blob->get_blob().is_compressed()) {
@@ -3237,11 +3236,11 @@ void BlueStore::ExtentMap::reshard_action(
 	      if (extent->logical_offset < pos && extent->logical_end() > pos) {
 		// split extent
 		size_t left = pos - extent->logical_offset;
-		Extent* ne = new Extent(pos, blob_offset, extent->length - left, b);
-		extent_map.insert(*ne);
-		extent->length = left;
-		dout(20) << __func__ << "  split " << *extent << dendl;
-		dout(20) << __func__ << "     to " << *ne << dendl;
+    Extent* ne = onode->get_new_extent(pos, blob_offset, extent->length - left, b);
+    extent_map.insert(*ne);
+    extent->length = left;
+    dout(20) << __func__ << "  split " << *extent << dendl;
+    dout(20) << __func__ << "     to " << *ne << dendl;
 	      }
 	    }
 	  }
@@ -3543,7 +3542,7 @@ void BlueStore::ExtentMap::ExtentDecoderFull::consume_spanning_blob(
 
 BlueStore::Extent* BlueStore::ExtentMap::ExtentDecoderFull::get_next_extent()
 {
-  return new Extent();
+  return extent_map.onode->get_new_extent();
 }
 
 void BlueStore::ExtentMap::ExtentDecoderFull::add_extent(BlueStore::Extent* le)
@@ -3589,6 +3588,16 @@ void BlueStore::ExtentMap::encode_spanning_blobs(
     denc_varint(i.second->id, p);
     i.second->encode(p, struct_v, i.second->get_sbid(), true);
   }
+}
+
+void BlueStore::ExtentMap::DeleteDisposer::operator()(Extent* e) {
+  std::destroy_at(e);
+  onode->LocalExtentAllocator.deallocate(e, 1);
+}
+
+void BlueStore::ExtentMap::add(uint32_t lo, uint32_t o, uint32_t l, BlobRef& b) {
+  Extent* ne = onode->get_new_extent(lo, o, l, b);
+  extent_map.insert(*ne);
 }
 
 void BlueStore::ExtentMap::init_shards(bool loaded, bool dirty)
@@ -3952,8 +3961,7 @@ BlueStore::Extent *BlueStore::ExtentMap::set_lextent(
   if (old_extents) {
     punch_hole(c, logical_offset, length, old_extents);
   }
-
-  Extent *le = new Extent(logical_offset, blob_offset, length, b);
+  Extent* le = onode->get_new_extent(logical_offset, blob_offset, length, b);
   extent_map.insert(*le);
   maybe_reshard(logical_offset, logical_offset + length);
   return le;
@@ -3980,7 +3988,7 @@ BlueStore::BlobRef BlueStore::ExtentMap::split_blob(
     if (ep->logical_offset < pos) {
       // split extent
       size_t left = pos - ep->logical_offset;
-      Extent *ne = new Extent(pos, 0, ep->length - left, rb);
+      Extent* ne = onode->get_new_extent(pos, 0, ep->length - left, rb);
       extent_map.insert(*ne);
       ep->length = left;
       dout(30) << __func__ << "  split " << *ep << dendl;

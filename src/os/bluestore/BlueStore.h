@@ -818,16 +818,21 @@ public:
     }
 
     struct DeleteDisposer {
-      void operator()(Extent *e) { delete e; }
+      Onode* onode = nullptr;
+      DeleteDisposer()
+        : onode(nullptr) {}
+      DeleteDisposer(Onode* o)
+        : onode(o) {}
+      void operator()(Extent* e);
     };
 
     ExtentMap(Onode *o, size_t inline_shard_prealloc_size);
     ~ExtentMap() {
-      extent_map.clear_and_dispose(DeleteDisposer());
+      extent_map.clear_and_dispose(DeleteDisposer(onode));
     }
 
     void clear() {
-      extent_map.clear_and_dispose(DeleteDisposer());
+      extent_map.clear_and_dispose(DeleteDisposer(onode));
       shards.clear();
       inline_bl.clear();
       clear_needs_reshard();
@@ -998,13 +1003,11 @@ public:
     /// if inside extent split it, if not return extent on right
     extent_map_t::iterator maybe_split_at(uint32_t offset);
     /// add a new Extent
-    void add(uint32_t lo, uint32_t o, uint32_t l, BlobRef& b) {
-      extent_map.insert(*new Extent(lo, o, l, b));
-    }
+    void add(uint32_t lo, uint32_t o, uint32_t l, BlobRef& b);
 
     /// remove (and delete) an Extent
     void rm(extent_map_t::iterator p) {
-      extent_map.erase_and_dispose(p, DeleteDisposer());
+      extent_map.erase_and_dispose(p, DeleteDisposer(onode));
     }
 
     bool has_any_lextents(uint64_t offset, uint64_t length);

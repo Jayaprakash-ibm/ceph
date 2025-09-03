@@ -38,6 +38,8 @@
 #include <boost/circular_buffer.hpp>
 #include <boost/optional.hpp>
 #include <utility>
+#include <memory_resource>
+#include <new>
 
 #include "include/cpp-btree/btree_set.h"
 
@@ -64,6 +66,89 @@
 #ifdef WITH_BLKIN
 #include "common/zipkin_trace.h"
 #endif
+
+class FixedPoolMemoryResource : public std::pmr::memory_resource {
+  struct Slab {
+    void* start;
+    size_t size;
+    size_t offset;
+    Slab* next;
+    Slab(void* s, size_t sz) : start(s), size(sz), offset(0), next(nullptr) {}
+  };
+
+  Slab* head = nullptr;
+  Slab* current_slab;
+  size_t default_slab_size;
+  struct FreeBlock {
+    FreeBlock* next;
+  };
+  FreeBlock* freelist = nullptr;
+
+public:
+  FixedPoolMemoryResource(void* start, size_t size) : default_slab_size(size) {
+    head = new Slab(start, size);
+    current_slab = head;
+  }
+
+  ~FixedPoolMemoryResource() {
+    Slab* current = head;
+    while (current) {
+      Slab* next = current->next;
+      if (current != head) {
+        ::operator delete(current->start);
+      }
+      delete current;
+      current = next;
+    }
+  }
+
+protected:
+  void* do_allocate(size_t bytes, size_t alignment) override {
+
+    if (freelist) {
+      void* p = freelist;
+      freelist = freelist->next;
+      return p;
+    }
+
+    size_t aligned_offset = (current_slab->offset + alignment - 1) & ~(alignment - 1);
+    if (aligned_offset + bytes <= current_slab->size) {
+      void* result = static_cast<char*>(current_slab->start) + aligned_offset;
+      current_slab->offset = aligned_offset + bytes;
+      return result;
+    }
+
+    size_t new_slab_size = std::max(default_slab_size, bytes);
+    void* new_slab_memory = ::operator new(new_slab_size);
+    Slab* new_slab = new Slab(new_slab_memory, new_slab_size);
+    current_slab->next = new_slab;
+    current_slab = new_slab;
+
+    aligned_offset = (0 + alignment - 1) & ~(alignment - 1);
+    void* result = static_cast<char*>(current_slab->start) + aligned_offset;
+    current_slab->offset = aligned_offset + bytes;
+    return result;
+  }
+
+  void do_deallocate(void* p, size_t, size_t) override {
+    auto* block = static_cast<FreeBlock*>(p);
+    block->next = freelist;
+    freelist = block;
+  }
+
+  bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
+    return this == &other;
+  }
+
+  void reset() {
+    Slab* current = head;
+    while (current) {
+      current->offset = 0;
+      current = current->next;
+    }
+    freelist = nullptr;
+  }
+};
 
 namespace bluestore {
 
@@ -258,6 +343,11 @@ namespace bluestore {
     ceph::mutex flush_lock = ceph::make_mutex("BlueStore::Onode::flush_lock");
     ceph::condition_variable flush_cond;   ///< wait here for uncommitted txns
     std::shared_ptr<int64_t> cache_age_bin;  ///< cache age bin
+
+    static constexpr size_t blob_pool_size = sizeof(Blob) * 1024;
+    alignas(Blob) std::byte blob_pool[blob_pool_size];
+    FixedPoolMemoryResource mem_resource;
+    std::pmr::polymorphic_allocator<Blob> LocalBlobAllocator;
 
     Onode(BlueStore::Collection *c, const ghobject_t& o,
 	  const mempool::bluestore_cache_meta::string& k);

@@ -77,6 +77,9 @@
 #define dout_context cct
 #define dout_subsys ceph_subsys_bluestore
 
+ceph::mutex BlueStore::cpulock = ceph::make_mutex("cpulock");
+measurement_t BlueStore::ct_txc_add_transaction;
+
 using bid_t = decltype(BlueStore::Blob::id);
 
 // bluestore_cache_onode
@@ -14676,12 +14679,41 @@ bool BlueStore::_eliminate_outdated_deferred(bluestore_deferred_transaction_t* d
 // ---------------------------
 // transactions
 
+struct HW_thread_ctx {
+    HW_ctx ctx;
+    bool initialized = false;
+};
+
+static HW_ctx* get_cputrace() {
+    thread_local HW_thread_ctx local_ctx;
+
+    if (!local_ctx.initialized) {
+        HW_init(&local_ctx.ctx,
+                HW_PROFILE_SWI | HW_PROFILE_CYC |
+                HW_PROFILE_CMISS | HW_PROFILE_BMISS |
+                HW_PROFILE_INS);
+        local_ctx.initialized = true;
+    }
+
+    return &local_ctx.ctx;
+}
+
 int BlueStore::queue_transactions(
   CollectionHandle& ch,
   vector<Transaction>& tls,
   TrackedOpRef op,
   ThreadPool::TPHandle *handle)
 {
+  sample_t startx;
+  thread_local HW_ctx* cputrace = get_cputrace();
+  HW_read(cputrace, &startx);
+  auto _ = make_scope_guard([&]() {
+    sample_t endx;
+    HW_read(cputrace, &endx);
+    std::lock_guard _(cpulock);
+    ct_txc_add_transaction.sample(endx - startx);
+  });
+  
   FUNCTRACE(cct);
   list<Context *> on_applied, on_commit, on_applied_sync;
   ObjectStore::Transaction::collect_contexts(
@@ -14792,6 +14824,7 @@ void BlueStore::_txc_aio_submit(TransContext *txc)
   dout(10) << __func__ << " txc " << txc << dendl;
   bdev->aio_submit(&txc->ioc);
 }
+
 
 void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
 {

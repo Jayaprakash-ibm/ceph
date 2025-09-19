@@ -61,6 +61,7 @@
 #include "BlueFS.h"
 #include "common/EventTrace.h"
 #include "common/admin_socket.h"
+#include "common/cputrace.h"
 
 #ifdef WITH_BLKIN
 #include "common/zipkin_trace.h"
@@ -272,6 +273,8 @@ class BlueStore : public ObjectStore,
   // types
 public:
   // config observer
+  static ceph::mutex cpulock;
+  static measurement_t ct_txc_add_transaction;
   std::vector<std::string> get_tracked_keys() const noexcept override;
   void handle_conf_change(const ConfigProxy& conf,
 			  const std::set<std::string> &changed) override;

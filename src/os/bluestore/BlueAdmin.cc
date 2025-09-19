@@ -49,6 +49,18 @@ BlueStore::SocketHook::SocketHook(BlueStore& store)
       this,
       "print compression stats, per collection");
     ceph_assert(r == 0);
+    r = admin_socket->register_command(
+      "bluestore debug show"
+      ,
+      this,
+      "debug stats");
+    ceph_assert(r == 0);
+    r = admin_socket->register_command(
+      "bluestore debug clear"
+      ,
+      this,
+      "debug stats");
+    ceph_assert(r == 0);
   }
 }
 
@@ -177,6 +189,12 @@ int BlueStore::SocketHook::call(
     }
     f->close_section();
     return 0;
+  } else if (command == "bluestore debug show") {
+    store.ct_txc_add_transaction.dump(f,
+      HW_PROFILE_SWI | HW_PROFILE_CYC | HW_PROFILE_CMISS | HW_PROFILE_BMISS | HW_PROFILE_INS,
+      "");
+  } else if (command == "bluestore debug clear") {
+    store.ct_txc_add_transaction.reset();
   } else {
     ss << "Invalid command" << std::endl;
     r = -ENOSYS;

@@ -74,6 +74,9 @@
 #define dout_context cct
 #define dout_subsys ceph_subsys_bluestore
 
+ceph::mutex BlueStore::cpulock = ceph::make_mutex("cpulock");
+measurement_t BlueStore::ct_txc_add_transaction;
+
 using bid_t = decltype(BlueStore::Blob::id);
 
 // bluestore_cache_onode
@@ -4091,9 +4094,30 @@ void BlueStore::ExtentMap::ExtentDecoder::decode_extent(
   ++extent_pos;
 }
 
+static HW_ctx* get_cputrace() {
+    thread_local HW_ctx cputrace;
+    thread_local bool initialized = false;
+    if (!initialized) {
+        HW_init(&cputrace, 
+            HW_PROFILE_SWI | HW_PROFILE_CYC | HW_PROFILE_CMISS | HW_PROFILE_BMISS | HW_PROFILE_INS);
+        initialized = true;
+    }
+    return &cputrace;
+}
+
 unsigned BlueStore::ExtentMap::ExtentDecoder::decode_some(
   const bufferlist& bl, Collection* c)
 {
+  sample_t startx;
+  thread_local HW_ctx* cputrace = get_cputrace();
+  HW_read(cputrace, &startx);
+  auto _ = make_scope_guard([&]() {
+    sample_t endx;
+    HW_read(cputrace, &endx);
+    std::lock_guard _(cpulock);
+    ct_txc_add_transaction.sample(endx - startx);
+  });
+
   __u8 struct_v;
   uint32_t num;
 
@@ -15761,6 +15785,7 @@ void BlueStore::_txc_aio_submit(TransContext *txc)
   dout(10) << __func__ << " txc " << txc << dendl;
   bdev->aio_submit(&txc->ioc);
 }
+
 
 void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
 {

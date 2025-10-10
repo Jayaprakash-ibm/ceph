@@ -77,8 +77,14 @@
 #define dout_context cct
 #define dout_subsys ceph_subsys_bluestore
 
-ceph::mutex BlueStore::cpulock = ceph::make_mutex("cpulock");
+ceph::mutex BlueStore::cpulock_tat = ceph::make_mutex("cpulock_tat");
+ceph::mutex BlueStore::cpulock_twn = ceph::make_mutex("cpulock_twn");
+ceph::mutex BlueStore::cpulock_tfk = ceph::make_mutex("cpulock_tfk");
+ceph::mutex BlueStore::cpulock_tsp = ceph::make_mutex("cpulock_tsp");
 measurement_t BlueStore::ct_txc_add_transaction;
+measurement_t BlueStore::ct_txc_write_nodes;
+measurement_t BlueStore::ct_txc_finalize_kv;
+measurement_t BlueStore::ct_txc_state_proc;
 
 using bid_t = decltype(BlueStore::Blob::id);
 
@@ -13336,8 +13342,36 @@ void BlueStore::_txc_update_store_statfs(TransContext *txc)
   txc->statfs_delta.reset();
 }
 
+struct HW_thread_ctx {
+    HW_ctx ctx;
+    bool initialized = false;
+};
+
+static HW_ctx* get_cputrace() {
+    thread_local HW_thread_ctx local_ctx;
+
+    if (!local_ctx.initialized) {
+        HW_init(&local_ctx.ctx,
+                HW_PROFILE_SWI | HW_PROFILE_CYC |
+                HW_PROFILE_CMISS | HW_PROFILE_BMISS |
+                HW_PROFILE_INS);
+        local_ctx.initialized = true;
+    }
+
+    return &local_ctx.ctx;
+}
+
 void BlueStore::_txc_state_proc(TransContext *txc)
 {
+  sample_t startx;
+  thread_local HW_ctx* cputrace = get_cputrace();
+  HW_read(cputrace, &startx);
+  auto _ = make_scope_guard([&]() {
+    sample_t endx;
+    HW_read(cputrace, &endx);
+    std::lock_guard _(cpulock_tsp);
+    ct_txc_state_proc.sample(endx - startx);
+  });
   while (true) {
     dout(10) << __func__ << " txc " << txc
 	     << " " << txc->get_state_name() << dendl;
@@ -13492,6 +13526,15 @@ void BlueStore::_txc_finish_io(TransContext *txc)
 
 void BlueStore::_txc_write_nodes(TransContext *txc, KeyValueDB::Transaction t)
 {
+  sample_t startx;
+  thread_local HW_ctx* cputrace = get_cputrace();
+  HW_read(cputrace, &startx);
+  auto _ = make_scope_guard([&]() {
+    sample_t endx;
+    HW_read(cputrace, &endx);
+    std::lock_guard _(cpulock_twn);
+    ct_txc_write_nodes.sample(endx - startx);
+  });
   dout(20) << __func__ << " txc " << txc
 	   << " onodes " << txc->onodes
 	   << " shared_blobs " << txc->shared_blobs
@@ -13555,6 +13598,15 @@ void BlueStore::BSPerfTracker::update_from_perfcounters(
 
 void BlueStore::_txc_finalize_kv(TransContext *txc, KeyValueDB::Transaction t)
 {
+  sample_t startx;
+  thread_local HW_ctx* cputrace = get_cputrace();
+  HW_read(cputrace, &startx);
+  auto _ = make_scope_guard([&]() {
+    sample_t endx;
+    HW_read(cputrace, &endx);
+    std::lock_guard _(cpulock_tfk);
+    ct_txc_finalize_kv.sample(endx - startx);
+  });
   dout(20) << __func__ << " txc " << txc << std::hex
 	   << " allocated 0x" << txc->allocated
 	   << " released 0x" << txc->released
@@ -14679,41 +14731,12 @@ bool BlueStore::_eliminate_outdated_deferred(bluestore_deferred_transaction_t* d
 // ---------------------------
 // transactions
 
-struct HW_thread_ctx {
-    HW_ctx ctx;
-    bool initialized = false;
-};
-
-static HW_ctx* get_cputrace() {
-    thread_local HW_thread_ctx local_ctx;
-
-    if (!local_ctx.initialized) {
-        HW_init(&local_ctx.ctx,
-                HW_PROFILE_SWI | HW_PROFILE_CYC |
-                HW_PROFILE_CMISS | HW_PROFILE_BMISS |
-                HW_PROFILE_INS);
-        local_ctx.initialized = true;
-    }
-
-    return &local_ctx.ctx;
-}
-
 int BlueStore::queue_transactions(
   CollectionHandle& ch,
   vector<Transaction>& tls,
   TrackedOpRef op,
   ThreadPool::TPHandle *handle)
 {
-  sample_t startx;
-  thread_local HW_ctx* cputrace = get_cputrace();
-  HW_read(cputrace, &startx);
-  auto _ = make_scope_guard([&]() {
-    sample_t endx;
-    HW_read(cputrace, &endx);
-    std::lock_guard _(cpulock);
-    ct_txc_add_transaction.sample(endx - startx);
-  });
-  
   FUNCTRACE(cct);
   list<Context *> on_applied, on_commit, on_applied_sync;
   ObjectStore::Transaction::collect_contexts(
@@ -14828,6 +14851,15 @@ void BlueStore::_txc_aio_submit(TransContext *txc)
 
 void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
 {
+  sample_t startx;
+  thread_local HW_ctx* cputrace = get_cputrace();
+  HW_read(cputrace, &startx);
+  auto _ = make_scope_guard([&]() {
+    sample_t endx;
+    HW_read(cputrace, &endx);
+    std::lock_guard _(cpulock_tat);
+    ct_txc_add_transaction.sample(endx - startx);
+  });
   Transaction::iterator i = t->begin();
 
   _dump_transaction<30>(cct, t);

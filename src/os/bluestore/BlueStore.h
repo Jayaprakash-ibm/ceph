@@ -273,8 +273,15 @@ class BlueStore : public ObjectStore,
   // types
 public:
   // config observer
-  static ceph::mutex cpulock;
+  static ceph::mutex cpulock_tat;
+  static ceph::mutex cpulock_twn;
+  static ceph::mutex cpulock_tfk;
+  static ceph::mutex cpulock_tsp;
   static measurement_t ct_txc_add_transaction;
+  static measurement_t ct_txc_write_nodes;
+  static measurement_t ct_txc_finalize_kv;
+  static measurement_t ct_txc_state_proc;
+
   std::vector<std::string> get_tracked_keys() const noexcept override;
   void handle_conf_change(const ConfigProxy& conf,
 			  const std::set<std::string> &changed) override;

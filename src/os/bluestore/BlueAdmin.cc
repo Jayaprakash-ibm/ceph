@@ -191,11 +191,27 @@ int BlueStore::SocketHook::call(
     f->close_section();
     return 0;
   } else if (command == "bluestore debug show") {
+    f->open_object_section("_txc_add_transaction");
     store.ct_txc_add_transaction.dump(f,
+      HW_PROFILE_SWI | HW_PROFILE_CYC | HW_PROFILE_CMISS | HW_PROFILE_BMISS | HW_PROFILE_INS,
+      "");
+    f->open_object_section("_txc_write_nodes");
+    store.ct_txc_write_nodes.dump(f,
+      HW_PROFILE_SWI | HW_PROFILE_CYC | HW_PROFILE_CMISS | HW_PROFILE_BMISS | HW_PROFILE_INS,
+      "");
+    f->open_object_section("_txc_finalize_kv;");
+    store.ct_txc_finalize_kv.dump(f,
+      HW_PROFILE_SWI | HW_PROFILE_CYC | HW_PROFILE_CMISS | HW_PROFILE_BMISS | HW_PROFILE_INS,
+      "");
+    f->open_object_section("_txc_state_proc");
+    store.ct_txc_state_proc.dump(f,
       HW_PROFILE_SWI | HW_PROFILE_CYC | HW_PROFILE_CMISS | HW_PROFILE_BMISS | HW_PROFILE_INS,
       "");
   } else if (command == "bluestore debug clear") {
     store.ct_txc_add_transaction.reset();
+    store.ct_txc_write_nodes.reset();
+    store.ct_txc_finalize_kv.reset();
+    store.ct_txc_state_proc.reset();
   } else {
     ss << "Invalid command" << std::endl;
     r = -ENOSYS;

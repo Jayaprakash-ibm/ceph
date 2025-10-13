@@ -37,7 +37,9 @@ namespace bluestore {
     bluestore::Onode* onode;
 
     void set_shared_blob(BlueStore::SharedBlobRef sb);
-    Blob(bluestore::Onode* onode) : onode(onode) {}
+    Blob(bluestore::Onode* onode)
+     : onode(onode),
+     used_in_blob(onode) {}
   private:
     BlueStore::SharedBlobRef shared_blob;      ///< shared blob state (if any)
     mutable bluestore_blob_t blob;  ///< decoded blob metadata
@@ -145,7 +147,7 @@ namespace bluestore {
     }
     void put() {
       if (--nref == 0)
-	delete this;
+        delete this;
     }
     bool is_shared_loaded() const;
     BlueStore::BufferCacheShard* get_cache();
@@ -207,8 +209,6 @@ namespace bluestore {
                               /// (it can be pinned and hence physically out
                               /// of it at the moment though)
     uint16_t prev_spanning_cnt = 0; /// spanning blobs count
-    BlueStore::ExtentMap extent_map;
-    BlueStore::BufferSpace bc;             ///< buffer cache
 
     // track txc's that have not been committed to kv store (and whose
     // effects cannot be read via the kvdb read methods)
@@ -218,6 +218,11 @@ namespace bluestore {
     ceph::mutex flush_lock = ceph::make_mutex("BlueStore::Onode::flush_lock");
     ceph::condition_variable flush_cond;   ///< wait here for uncommitted txns
     std::shared_ptr<int64_t> cache_age_bin;  ///< cache age bin
+
+    std::pmr::unsynchronized_pool_resource mem_resource;
+    std::pmr::polymorphic_allocator<uint32_t> LocalBytesPerAuAllocator;
+    BlueStore::ExtentMap extent_map;
+    BlueStore::BufferSpace bc;             ///< buffer cache
 
     Onode(BlueStore::Collection *c, const ghobject_t& o,
 	  const mempool::bluestore_cache_meta::string& k);

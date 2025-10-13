@@ -127,10 +127,7 @@ uint64_t bluestore::Blob::get_sbid() const {
 
 void bluestore::Blob::put() {
   if (--nref == 0) {
-    std::destroy_at(this);
-    if (onode) {
-      onode->LocalBlobAllocator.deallocate(this, 1);
-    }
+    this->~Blob();
   }
 }
 

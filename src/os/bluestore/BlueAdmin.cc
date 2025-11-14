@@ -4,6 +4,7 @@
 #include "BlueAdmin.h"
 #include "BlueStore_objects.h"
 #include "Compression.h"
+#include "common/cputrace.h"
 #include "common/pretty_binary.h"
 #include "common/debug.h"
 #include <asm-generic/errno-base.h>
@@ -50,6 +51,18 @@ BlueStore::SocketHook::SocketHook(BlueStore& store)
       this,
       "print compression stats, per collection");
     ceph_assert(r == 0);
+    #ifdef BLUESTORE_COMMON_CPUTRACE
+    r = admin_socket->register_command(
+      "bluestore cputrace show",
+      this,
+      "debug stats");
+    ceph_assert(r == 0);
+    r = admin_socket->register_command(
+      "bluestore cputrace clear",
+      this,
+      "debug stats");
+    ceph_assert(r == 0);
+    #endif
   }
 }
 
@@ -178,7 +191,38 @@ int BlueStore::SocketHook::call(
     }
     f->close_section();
     return 0;
-  } else {
+  }
+  #ifdef BLUESTORE_COMMON_CPUTRACE
+    else if (command == "bluestore cputrace show") {
+    f->open_object_section("cputrace_measurements");
+    std::vector<std::pair<const char*, measurement_t&>> to_print = {
+      {"_txc_add_transaction", store.cputrace_stats.txc_add_transaction},
+      {"_txc_write_nodes",     store.cputrace_stats.txc_write_nodes},
+      {"_txc_finalize_kv",     store.cputrace_stats.txc_finalize_kv},
+      {"_txc_state_proc",      store.cputrace_stats.txc_state_proc},
+      {"get_onode_miss",       store.cputrace_stats.get_onode_miss},
+      {"onode_load_shard",     store.cputrace_stats.shard_miss},
+      {"onode_delete",         store.cputrace_stats.onode_del}
+    };
+    for (auto& i : to_print) {
+      f->open_object_section(i.first);
+      i.second.dump(f,
+        HW_PROFILE_SWI | HW_PROFILE_CYC | HW_PROFILE_CMISS | HW_PROFILE_BMISS | HW_PROFILE_INS,
+        "");
+      f->close_section();
+    };
+    f->close_section();
+  } else if (command == "bluestore cputrace clear") {
+    store.cputrace_stats.txc_add_transaction.reset();
+    store.cputrace_stats.txc_write_nodes.reset();
+    store.cputrace_stats.txc_finalize_kv.reset();
+    store.cputrace_stats.txc_state_proc.reset();
+    store.cputrace_stats.get_onode_miss.reset();
+    store.cputrace_stats.shard_miss.reset();
+    store.cputrace_stats.onode_del.reset();
+  }
+  #endif
+    else {
     ss << "Invalid command" << std::endl;
     r = -ENOSYS;
   }

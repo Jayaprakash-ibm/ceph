@@ -3674,6 +3674,8 @@ void BlueStore::ExtentMap::maybe_load_shard(
     ceph_assert((size_t)start < shards.size());
     auto p = &shards[start];
     if (!p->loaded) {
+      MEASURE_SCOPE(onode->c->store->cputrace_stats.shard_miss,
+                    onode->c->store->cputrace_stats.cpulock_shm);
       dout(30) << __func__ << " opening shard 0x" << std::hex
 	       << p->shard_info->offset << std::dec << dendl;
       bufferlist v;
@@ -4374,7 +4376,8 @@ BlueStore::OnodeRef BlueStore::Collection::get_onode(
   OnodeRef o = onode_space.lookup(oid);
   if (o)
     return o;
-
+  MEASURE_SCOPE(store->cputrace_stats.get_onode_miss,
+                store->cputrace_stats.cpulock_gom);
   string key;
   get_object_key(store->cct, oid, &key);
 
@@ -13363,6 +13366,8 @@ void BlueStore::_txc_update_store_statfs(TransContext *txc)
 
 void BlueStore::_txc_state_proc(TransContext *txc)
 {
+  MEASURE_SCOPE(cputrace_stats.txc_state_proc,
+                cputrace_stats.cpulock_tsp);
   while (true) {
     dout(10) << __func__ << " txc " << txc
 	     << " " << txc->get_state_name() << dendl;
@@ -13517,6 +13522,8 @@ void BlueStore::_txc_finish_io(TransContext *txc)
 
 void BlueStore::_txc_write_nodes(TransContext *txc, KeyValueDB::Transaction t)
 {
+  MEASURE_SCOPE(cputrace_stats.txc_write_nodes,
+                cputrace_stats.cpulock_twn);
   dout(20) << __func__ << " txc " << txc
 	   << " onodes " << txc->onodes
 	   << " shared_blobs " << txc->shared_blobs
@@ -13580,6 +13587,8 @@ void BlueStore::BSPerfTracker::update_from_perfcounters(
 
 void BlueStore::_txc_finalize_kv(TransContext *txc, KeyValueDB::Transaction t)
 {
+  MEASURE_SCOPE(cputrace_stats.txc_finalize_kv,
+                cputrace_stats.cpulock_tfk);
   dout(20) << __func__ << " txc " << txc << std::hex
 	   << " allocated 0x" << txc->allocated
 	   << " released 0x" << txc->released
@@ -14821,8 +14830,11 @@ void BlueStore::_txc_aio_submit(TransContext *txc)
   bdev->aio_submit(&txc->ioc);
 }
 
+
 void BlueStore::_txc_add_transaction(TransContext *txc, Transaction *t)
 {
+  MEASURE_SCOPE(cputrace_stats.txc_add_transaction,
+                cputrace_stats.cpulock_tat);
   Transaction::iterator i = t->begin();
 
   _dump_transaction<30>(cct, t);

@@ -844,7 +844,9 @@ bluestore::Onode::Onode(BlueStore::Collection *c, const ghobject_t& o,
     cached(false),
     bc(*this),
     mem_resource(blob_pool, blob_pool_size),
+    extent_mem_resource(extent_pool, extent_pool_size),
     LocalBlobAllocator(&mem_resource),
+    LocalExtentAllocator(&extent_mem_resource),
     extent_map(this,
       c->store->cct->_conf->
       bluestore_extent_map_inline_shard_prealloc_size) {
@@ -855,7 +857,9 @@ bluestore::Onode::Onode(CephContext* cct)
     cached(false),
     bc(*this),
     mem_resource(blob_pool, blob_pool_size),
+    extent_mem_resource(extent_pool, extent_pool_size),
     LocalBlobAllocator(&mem_resource),
+    LocalExtentAllocator(&extent_mem_resource),
     extent_map(this,
       cct->_conf->
       bluestore_extent_map_inline_shard_prealloc_size) {

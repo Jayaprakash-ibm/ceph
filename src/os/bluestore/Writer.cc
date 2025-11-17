@@ -105,7 +105,8 @@ BlueStore::extent_map_t::iterator BlueStore::_punch_hole_2(
     }
     Extent* e = &(*p);
     p = emap.extent_map.erase(p);
-    delete e;
+    std::destroy_at(e);
+    o->LocalExtentAllocator.deallocate(e, 1);
   }
   return p;
 }

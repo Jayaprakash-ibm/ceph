@@ -75,7 +75,8 @@ protected:
     }
 
     size_t slab_bytes = sizeof(Slab) + default_slab_size;
-    void* mem = malloc(slab_bytes);
+    constexpr size_t SLAB_ALIGN = alignof(Slab);
+    void* mem = std::aligned_alloc(SLAB_ALIGN, slab_bytes);
     if (!mem) throw std::bad_alloc();
 
     Slab* new_slab = new (mem) Slab{nullptr, default_slab_size, 0};
@@ -107,9 +108,17 @@ protected:
 
 private:
   static Slab* init_slab(void* start, size_t size) {
-    if (size < sizeof(Slab)) throw std::bad_alloc();
-    Slab* slab = new (start) Slab{nullptr, size - sizeof(Slab), 0};
-    return slab;
+    constexpr size_t SLAB_ALIGN = alignof(Slab);
+    uintptr_t p = reinterpret_cast<uintptr_t>(start);
+    uintptr_t aligned = (p + (SLAB_ALIGN - 1)) & ~(SLAB_ALIGN - 1);
+
+    size_t adjust = aligned - p;
+    if (size < adjust + sizeof(Slab))
+      throw std::bad_alloc();
+
+    size -= adjust;
+    start = reinterpret_cast<void*>(aligned);
+    return new (start) Slab{nullptr, size - sizeof(Slab), 0};
   }
 };
 
@@ -304,9 +313,13 @@ namespace bluestore {
     std::shared_ptr<int64_t> cache_age_bin;  ///< cache age bin
 
     static constexpr size_t blob_pool_size = sizeof(Blob) * 16;
+    static constexpr size_t extent_pool_size = sizeof(BlueStore::Extent) * 16;
     alignas(Blob) std::byte blob_pool[blob_pool_size];
+    alignas(BlueStore::Extent) std::byte extent_pool[extent_pool_size];
     FixedPoolMemoryResource mem_resource;
+    FixedPoolMemoryResource extent_mem_resource;
     std::pmr::polymorphic_allocator<Blob> LocalBlobAllocator;
+    std::pmr::polymorphic_allocator<BlueStore::Extent> LocalExtentAllocator;
     BlueStore::ExtentMap extent_map;
 
     Onode(BlueStore::Collection *c, const ghobject_t& o,
@@ -348,6 +361,28 @@ namespace bluestore {
     }
 
     BlueStore::BlobRef new_blob();
+
+    inline BlueStore::Extent* get_new_extent() {
+      BlueStore::Extent* ne = LocalExtentAllocator.allocate(1);
+      std::construct_at(ne);
+      return ne;
+    }
+
+    inline BlueStore::Extent* get_new_extent(uint32_t lo) {
+      BlueStore::Extent* ne = LocalExtentAllocator.allocate(1);
+      std::construct_at(ne, lo);
+      return ne;
+    }
+    
+    inline BlueStore::Extent* get_new_extent(uint32_t lo,
+      uint32_t o,
+      uint32_t l,
+      BlueStore::BlobRef& b)
+    {
+      BlueStore::Extent* ne = LocalExtentAllocator.allocate(1);
+      std::construct_at(ne, lo, o, l, b);
+      return ne;
+    }
 
     static const std::string& calc_omap_prefix(uint8_t flags);
     static void calc_omap_header(uint8_t flags, const Onode* o,

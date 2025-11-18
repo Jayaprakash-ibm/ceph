@@ -866,6 +866,7 @@ bluestore::Onode::Onode(CephContext* cct)
 }
 
 bluestore::Onode::~Onode() {
+  fast_deletion = true;
   if (c) {
     std::lock_guard l(c->cache->lock);
     bc._clear(c->cache);

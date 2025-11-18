@@ -954,6 +954,8 @@ void bluestore::Onode::put()
     c->get_onode_cache()->maybe_unpin(this);
   }
   if (--nref == 0) {
+    BlueStore::MEASURE_SCOPE(c->store->cputrace_stats.onode_del,
+                  c->store->cputrace_stats.cpulock_ond);
     delete this;
   }
 }

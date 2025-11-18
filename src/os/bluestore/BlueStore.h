@@ -81,7 +81,7 @@ namespace bluestore {
 //#define DEBUG_DEFERRED
 #ifdef WITH_CPUTRACE
 //change to #define to enable
-#undef BLUESTORE_COMMON_CPUTRACE
+#define BLUESTORE_COMMON_CPUTRACE
 #endif
 // constants for Buffer::optimize()
 #define MAX_BUFFER_SLOP_RATIO_DEN  8  // so actually 1/N

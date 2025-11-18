@@ -57,6 +57,7 @@ public:
       free(slab);
       slab = next;
     }
+    freelist = nullptr;
   }
 
 protected:
@@ -320,6 +321,7 @@ namespace bluestore {
     FixedPoolMemoryResource extent_mem_resource;
     std::pmr::polymorphic_allocator<Blob> LocalBlobAllocator;
     std::pmr::polymorphic_allocator<BlueStore::Extent> LocalExtentAllocator;
+    bool fast_deletion = false;
     BlueStore::ExtentMap extent_map;
 
     Onode(BlueStore::Collection *c, const ghobject_t& o,

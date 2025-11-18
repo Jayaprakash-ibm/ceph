@@ -827,9 +827,8 @@ public:
     };
 
     ExtentMap(Onode *o, size_t inline_shard_prealloc_size);
-    ~ExtentMap() {
-      extent_map.clear_and_dispose(DeleteDisposer(onode));
-    }
+
+    ~ExtentMap();
 
     void clear() {
       extent_map.clear_and_dispose(DeleteDisposer(onode));

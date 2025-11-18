@@ -3595,6 +3595,16 @@ void BlueStore::ExtentMap::DeleteDisposer::operator()(Extent* e) {
   onode->LocalExtentAllocator.deallocate(e, 1);
 }
 
+BlueStore::ExtentMap::~ExtentMap() {
+  if (onode->fast_deletion) {
+    extent_map.clear_and_dispose([](BlueStore::Extent* e) {
+      e->~Extent();
+    });
+    return;
+  }
+  extent_map.clear_and_dispose(DeleteDisposer(onode));
+}
+
 void BlueStore::ExtentMap::add(uint32_t lo, uint32_t o, uint32_t l, BlobRef& b) {
   Extent* ne = onode->get_new_extent(lo, o, l, b);
   extent_map.insert(*ne);

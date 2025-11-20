@@ -45,8 +45,8 @@ class FixedPoolMemoryResource : public std::pmr::memory_resource {
   FreeBlock* freelist = nullptr;
 
 public:
-  FixedPoolMemoryResource(void* start, size_t size) : default_slab_size(size) {
-    head = init_slab(start, size);
+  FixedPoolMemoryResource(size_t size) : default_slab_size(size) {
+    head = get_slab(size);
     current_slab = head;
   }
 
@@ -75,12 +75,7 @@ protected:
       return result;
     }
 
-    size_t slab_bytes = sizeof(Slab) + default_slab_size;
-    constexpr size_t SLAB_ALIGN = alignof(Slab);
-    void* mem = std::aligned_alloc(SLAB_ALIGN, slab_bytes);
-    if (!mem) throw std::bad_alloc();
-
-    Slab* new_slab = new (mem) Slab{nullptr, default_slab_size, 0};
+    Slab* new_slab = get_slab(default_slab_size);
     current_slab->next = new_slab;
     current_slab = new_slab;
 
@@ -108,18 +103,12 @@ protected:
   }
 
 private:
-  static Slab* init_slab(void* start, size_t size) {
+  static Slab* get_slab(size_t size) {
     constexpr size_t SLAB_ALIGN = alignof(Slab);
-    uintptr_t p = reinterpret_cast<uintptr_t>(start);
-    uintptr_t aligned = (p + (SLAB_ALIGN - 1)) & ~(SLAB_ALIGN - 1);
-
-    size_t adjust = aligned - p;
-    if (size < adjust + sizeof(Slab))
-      throw std::bad_alloc();
-
-    size -= adjust;
-    start = reinterpret_cast<void*>(aligned);
-    return new (start) Slab{nullptr, size - sizeof(Slab), 0};
+    size_t slab_bytes = sizeof(Slab) + size;
+    void* mem = std::aligned_alloc(SLAB_ALIGN, slab_bytes);
+    if (!mem) throw std::bad_alloc();
+    return new (mem) Slab{nullptr, size, 0};
   }
 };
 
@@ -315,8 +304,6 @@ namespace bluestore {
 
     static constexpr size_t blob_pool_size = sizeof(Blob) * 16;
     static constexpr size_t extent_pool_size = sizeof(BlueStore::Extent) * 16;
-    alignas(Blob) std::byte blob_pool[blob_pool_size];
-    alignas(BlueStore::Extent) std::byte extent_pool[extent_pool_size];
     FixedPoolMemoryResource mem_resource;
     FixedPoolMemoryResource extent_mem_resource;
     std::pmr::polymorphic_allocator<Blob> LocalBlobAllocator;

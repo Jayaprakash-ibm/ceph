@@ -39,14 +39,18 @@ class FixedPoolMemoryResource : public std::pmr::memory_resource {
   Slab* head = nullptr;
   Slab* current_slab = nullptr;
   size_t default_slab_size;
+  mempool::pool_index_t pool_index;
   struct FreeBlock {
     FreeBlock* next;
   };
   FreeBlock* freelist = nullptr;
 
 public:
-  FixedPoolMemoryResource(size_t size) : default_slab_size(size) {
-    head = get_slab(size);
+  FixedPoolMemoryResource(size_t size, mempool::pool_index_t pool_idx)
+    : default_slab_size(size),
+    pool_index(pool_idx)
+  {
+    head = this->get_slab(size);
     current_slab = head;
   }
 
@@ -55,6 +59,12 @@ public:
     while (slab) {
       Slab* next = slab->next;
       free(slab);
+      mempool::get_pool(
+        mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
+          adjust_count(-1, -1 * sizeof(Slab));
+      mempool::get_pool(
+        mempool::pool_index_t(pool_index)).
+          adjust_count(-16, -1 * default_slab_size);
       slab = next;
     }
     freelist = nullptr;
@@ -75,7 +85,7 @@ protected:
       return result;
     }
 
-    Slab* new_slab = get_slab(default_slab_size);
+    Slab* new_slab = this->get_slab(default_slab_size);
     current_slab->next = new_slab;
     current_slab = new_slab;
 
@@ -103,11 +113,17 @@ protected:
   }
 
 private:
-  static Slab* get_slab(size_t size) {
+  Slab* get_slab(size_t size) {
     constexpr size_t SLAB_ALIGN = alignof(Slab);
     size_t slab_bytes = sizeof(Slab) + size;
     void* mem = std::aligned_alloc(SLAB_ALIGN, slab_bytes);
     if (!mem) throw std::bad_alloc();
+    mempool::get_pool(
+      mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
+        adjust_count(1, sizeof(Slab));
+    mempool::get_pool(
+      mempool::pool_index_t(pool_index)).
+        adjust_count(16, size);
     return new (mem) Slab{nullptr, size, 0};
   }
 };

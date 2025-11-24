@@ -67,6 +67,13 @@ uint64_t bluestore::Blob::get_sbid() const {
 #define dout_context onode->c->store->cct
 
 void bluestore::Blob::put() {
+  if (nref.load(std::memory_order_acquire) == 1) {
+    std::destroy_at(this);
+    if (onode) {
+      onode->LocalBlobAllocator.deallocate(this, 1);
+    }
+    return;
+  }
   if (--nref == 0) {
     std::destroy_at(this);
     if (onode) {

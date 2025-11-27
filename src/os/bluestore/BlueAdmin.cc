@@ -49,6 +49,11 @@ BlueStore::SocketHook::SocketHook(BlueStore& store)
       this,
       "print compression stats, per collection");
     ceph_assert(r == 0);
+    r = admin_socket->register_command(
+      "bluestore show onode_cache_shards",
+      this,
+      "debug stats");
+    ceph_assert(r == 0);
   }
 }
 
@@ -177,6 +182,16 @@ int BlueStore::SocketHook::call(
     }
     f->close_section();
     return 0;
+  } else if (command == "bluestore show onode_cache_shards") {
+    f->open_array_section("onode_cache_shards");
+      for (auto shard : store.onode_cache_shards) {
+        f->open_object_section("shard");
+        f->dump_unsigned("Address : ", reinterpret_cast<uint64_t>(shard));
+        f->dump_unsigned("Number of Onodes : ", shard->_get_num());
+        f->dump_unsigned("Max Items : ", shard->max);
+        f->close_section();
+      }
+    f->close_section();
   } else {
     ss << "Invalid command" << std::endl;
     r = -ENOSYS;

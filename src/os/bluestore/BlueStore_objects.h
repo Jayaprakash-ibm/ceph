@@ -55,16 +55,16 @@ public:
   }
 
   ~FixedPoolMemoryResource() {
-    Slab* slab = head->next;
+    Slab* slab = head;
     while (slab) {
       Slab* next = slab->next;
       std::free(slab);
       mempool::get_pool(
         mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
-          adjust_count(-1, -1 * sizeof(Slab));
+          adjust_count(-(int32_t)1, -(int32_t)sizeof(Slab));
       mempool::get_pool(
         mempool::pool_index_t(pool_index)).
-          adjust_count(-16, -1 * default_slab_size);
+          adjust_count(-(int32_t)16, -(int32_t)default_slab_size);
       slab = next;
     }
     freelist = nullptr;
@@ -120,10 +120,10 @@ private:
     if (!mem) throw std::bad_alloc();
     mempool::get_pool(
       mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
-        adjust_count(1, sizeof(Slab));
+        adjust_count((int32_t)1, (int32_t)sizeof(Slab));
     mempool::get_pool(
       mempool::pool_index_t(pool_index)).
-        adjust_count(16, size);
+        adjust_count((int32_t)16, (int32_t)size);
     return new (mem) Slab{nullptr, size, 0};
   }
 };

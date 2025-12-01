@@ -58,7 +58,7 @@ public:
     Slab* slab = head->next;
     while (slab) {
       Slab* next = slab->next;
-      free(slab);
+      std::free(slab);
       mempool::get_pool(
         mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
           adjust_count(-1, -1 * sizeof(Slab));

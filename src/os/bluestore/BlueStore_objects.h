@@ -56,19 +56,10 @@ public:
   ~BitMapMemoryResource() override {
     for (size_t i = 0; i < bases.size(); ++i) {
       if (!bases[i]) continue;
-      int used = std::popcount(bitmaps[i]);
       ::operator delete(bases[i], std::align_val_t(alignment));
-      if (used > 0) [[likely]] {
-        mempool::get_pool(pool)
-          .adjust_count(-used, -(int)(used * slot_size));
-        mempool::get_pool(
-          mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
-            adjust_count(-(slots - used), (int)((slots - used) * slot_size));
-      } else {
-        mempool::get_pool(
-          mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
-            adjust_count(-(slots), (int)(chunk_size));
-      }
+      mempool::get_pool(
+        mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
+          adjust_count(-(slots), (int)(chunk_size));
     }
   }
 
@@ -81,11 +72,6 @@ protected:
     unsigned b = static_cast<unsigned>(__builtin_ctz(free_mask));
     bitmaps[idx] |= static_cast<uint8_t>(1u << b);
     update_seg(idx);
-
-    mempool::get_pool(pool).adjust_count(1, (int)slot_size);
-    mempool::get_pool(
-      mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
-        adjust_count(-1, -(int)slot_size);
 
     return static_cast<char*>(bases[idx]) + b * slot_size;
   }
@@ -102,11 +88,6 @@ protected:
 
     bitmaps[idx] &= static_cast<uint8_t>(~(1u << slot));
     update_seg(idx);
-
-    mempool::get_pool(pool).adjust_count(-1, -(int)slot_size);
-    mempool::get_pool(
-      mempool::pool_index_t(mempool::mempool_bluestore_cache_other)).
-        adjust_count(1, (int)slot_size);
 
     if (bitmaps[idx] == 0) [[unlikely]] {
       ::operator delete(bases[idx], std::align_val_t(alignment));

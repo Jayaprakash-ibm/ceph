@@ -25,6 +25,7 @@ ceph config set osd osd_memory_target 939524096
 ceph config set osd bluestore_onode_segment_size 0
 ceph osd erasure-code-profile set myecprofile k=2 m=1
 ceph osd pool create ecpool 16 16 erasure myecprofile
+ceph osd pool set ecpool allow_ec_optimizations true
 ceph osd pool set ecpool allow_ec_overwrites true
 
 status_log() {

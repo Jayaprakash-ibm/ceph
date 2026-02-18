@@ -118,6 +118,11 @@ public:
       r = admin_socket->register_command("bluefs force spillover clean", hook,
                                          "Force spillover cleaner");
       ceph_assert(r == 0);
+      r = admin_socket->register_command("bluefs volume_selector set "
+              "name=mode,type=CephChoices,strings=slow|db|normal,req=true"
+              , hook,
+              "Set volume selector mode");
+      ceph_assert(r == 0);
     }
     return hook;
   }
@@ -210,6 +215,11 @@ private:
       bluefs->inject_read_zeros++;
     } else if (command == "bluefs force spillover clean") {
       bluefs->force_clean_spillover();
+    } else if (command == "bluefs volume_selector set") {
+      std::string mode;
+      cmd_getval(cmdmap, "mode", mode);
+      auto sel = bluefs->vselector.get();
+      sel->set_mode(mode);
     } else {
       errss << "Invalid command" << std::endl;
       return -ENOSYS;

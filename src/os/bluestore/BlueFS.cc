@@ -4939,6 +4939,8 @@ void BlueFS::_spillover_cleaner_thread()
         goto exit;
     }
 
+    _check_vselector_LNF();
+
     {
       std::unique_lock l(spillover_cleaner_lock);
       spillover_cleaner_cond.wait_for(

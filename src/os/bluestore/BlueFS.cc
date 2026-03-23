@@ -114,6 +114,9 @@ public:
 	r = admin_socket->register_command("bluefs debug_inject_read_zeros", hook,
 					   "Injects 8K zeros into next BlueFS read. Debug only.");
 	ceph_assert(r == 0);
+  r = admin_socket->register_command("bluefs check vselector", hook,
+              "Check volume selector LNF");
+      ceph_assert(r == 0);
       }
     }
     return hook;
@@ -205,6 +208,8 @@ private:
       f->flush(out);
     } else if (command == "bluefs debug_inject_read_zeros") {
       bluefs->inject_read_zeros++;
+    } else if (command == "bluefs check vselector") {
+      bluefs->_check_vselector_LNF();
     } else {
       errss << "Invalid command" << std::endl;
       return -ENOSYS;

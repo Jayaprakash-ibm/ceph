@@ -810,6 +810,12 @@ public:
   }
   int fsck();
 
+  int migrate_file(
+    CephContext *cct,
+    FileRef file_ref,
+    int from_bdev,
+    int to_bdev
+  );
   int device_migrate_to_new(
     CephContext *cct,
     const std::set<int>& devs_source,
@@ -965,6 +971,114 @@ private:
     const std::string& dir,
     const std::string& name
   );
+
+  enum class SpillOverCleanerAction {
+    CONTINUE,
+    SLEEP,
+    EXIT
+  };
+
+  struct SpilloverCleanerLogic {
+    virtual ~SpilloverCleanerLogic() = default;
+    virtual SpillOverCleanerAction advance(
+      BlueFS* fs
+    ) = 0;
+  };
+
+  struct SpilloverCleanerThread : public Thread {
+  public:
+    explicit SpilloverCleanerThread(BlueFS* fs)
+      : bluefs(fs) {}
+    void* entry() override;
+    void init(std::shared_ptr<SpilloverCleanerLogic> logic_
+          = std::make_shared<RebalanceToDB>()) {
+      std::lock_guard l(lock);
+      if (created) {
+        return;
+      }
+      stop = false;
+      logic = logic_;
+      create("bluefs_splctr");
+      created = true;
+    }
+    void shutdown() {
+      {
+        std::unique_lock l(lock);
+        if (!created) {
+          return;
+        }
+        while (!start) {
+          cond.wait(l);
+        }
+        stop = true;
+        cond.notify_all();
+      }
+      join();
+    }
+
+    void update_logic(std::shared_ptr<SpilloverCleanerLogic> logic_)
+    {
+      std::lock_guard l(lock);
+      logic = std::move(logic_);
+      cond.notify_all();
+    }
+  private:
+    BlueFS* bluefs;
+    ceph::mutex lock = ceph::make_mutex("SpilloverCleanerThread::lock");
+    ceph::condition_variable cond;
+
+    bool stop = false;
+    bool start = false;
+    bool created = false;
+
+    std::shared_ptr<SpilloverCleanerLogic> logic;
+  } spillover_cleaner_thread;
+
+  struct ForceToDB : public SpilloverCleanerLogic {
+    std::vector<FileRef> pending;
+    size_t idx = 0;
+    SpillOverCleanerAction advance(
+      BlueFS* fs
+    ) override;
+  };
+
+  struct RebalanceToDB : public SpilloverCleanerLogic {
+    std::vector<FileRef> pending;
+    size_t idx = 0;
+    bool need_wait = true;
+    SpillOverCleanerAction advance(
+      BlueFS* fs
+    ) override;
+  };
+public:
+  void spillover_cleaner_start(
+      std::shared_ptr<SpilloverCleanerLogic> logic =
+          std::make_shared<RebalanceToDB>())
+  {
+    spillover_cleaner_thread.init(logic);
+  }
+  void spillover_cleaner_stop()
+  {
+    spillover_cleaner_thread.shutdown();
+  }
+  void update_spillover_cleaner_from_config()
+  {
+    if(cct->_conf->bluefs_spillover_cleaner) {
+      spillover_cleaner_start();
+    } else {
+      spillover_cleaner_stop();
+    }
+  }
+  void update_spillover_cleaner_logic(
+      std::shared_ptr<SpilloverCleanerLogic> logic)
+  {
+    spillover_cleaner_thread.update_logic(logic);
+  }
+
+  void force_clean_spillover()
+  {
+    update_spillover_cleaner_logic(std::make_shared<ForceToDB>());
+  }
 };
 
 class OriginalVolumeSelector : public BlueFSVolumeSelector {

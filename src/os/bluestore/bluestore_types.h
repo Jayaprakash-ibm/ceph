@@ -504,6 +504,8 @@ WRITE_CLASS_DENC(bluestore_blob_use_tracker_t)
 std::ostream& operator<<(std::ostream& out, const bluestore_blob_use_tracker_t& rm);
 
 /// blob: a piece of data on disk
+using blob_id_t = int16_t;
+
 struct bluestore_blob_t {
 private:
   PExtentVector extents;              ///< raw data position on device

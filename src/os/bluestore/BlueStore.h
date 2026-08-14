@@ -57,10 +57,10 @@
 #include "os/ObjectStore.h"
 
 #include "bluestore_types.h"
-#include "bluestore_common.h"
 #include "BlueFS.h"
 #include "common/EventTrace.h"
 #include "common/admin_socket.h"
+#include "kv/KeyValueDB.h"
 #ifdef WITH_CPUTRACE
 #include "common/cputrace.h"
 #endif
@@ -90,20 +90,20 @@ namespace bluestore {
 #define CEPH_BLUESTORE_TOOL_RESTORE_ALLOCATION
 
 // kv store prefixes
-const std::string PREFIX_SUPER = "S";       // field -> value
-const std::string PREFIX_STAT = "T";        // field -> value(int64 array)
-const std::string PREFIX_COLL = "C";        // collection name -> cnode_t
-const std::string PREFIX_OBJ = "O";         // object name -> onode_t
-const std::string PREFIX_OMAP = "M";        // u64 + keyname -> value
-const std::string PREFIX_PGMETA_OMAP = "P"; // u64 + keyname -> value(for meta coll)
-const std::string PREFIX_PERPOOL_OMAP = "m"; // s64 + u64 + keyname -> value
-const std::string PREFIX_PERPG_OMAP = "p";   // u64(pool) + u32(hash) + u64(id) + keyname -> value
-const std::string PREFIX_DEFERRED = "L";    // id -> deferred_transaction_t
-const std::string PREFIX_ALLOC = "B";       // u64 offset -> u64 length (freelist)
-const std::string PREFIX_ALLOC_BITMAP = "b";// (see BitmapFreelistManager)
-const std::string PREFIX_SHARED_BLOB = "X"; // u64 SB id -> shared_blob_t
+extern const std::string PREFIX_SUPER;
+extern const std::string PREFIX_STAT;
+extern const std::string PREFIX_COLL;
+extern const std::string PREFIX_OBJ;
+extern const std::string PREFIX_OMAP;
+extern const std::string PREFIX_PGMETA_OMAP;
+extern const std::string PREFIX_PERPOOL_OMAP;
+extern const std::string PREFIX_PERPG_OMAP;
+extern const std::string PREFIX_DEFERRED;
+extern const std::string PREFIX_ALLOC;
+extern const std::string PREFIX_ALLOC_BITMAP;
+extern const std::string PREFIX_SHARED_BLOB;
 
-const std::string BLUESTORE_GLOBAL_STATFS_KEY = "bluestore_statfs";
+extern const std::string BLUESTORE_GLOBAL_STATFS_KEY;
 
 enum {
   l_bluestore_first = 732430,
@@ -949,7 +949,7 @@ public:
       KeyValueDB::Transaction t);
 
 
-    int16_t allocate_spanning_blob_id();
+    blob_id_t allocate_spanning_blob_id();
     void reshard(
       KeyValueDB *db,
       KeyValueDB::Transaction t,
@@ -2582,10 +2582,10 @@ private:
     BlockDevice* bdev,
     const std::string &path,
     bluestore_bdev_label_t label,
-    std::vector<uint64_t> locations = std::vector<uint64_t>({BDEV_FIRST_LABEL_POSITION}));
+    std::vector<uint64_t> locations);
   static int _read_bdev_label(
     CephContext* cct, BlockDevice* bdev, const std::string &path,
-    bluestore_bdev_label_t *label, uint64_t disk_position = BDEV_FIRST_LABEL_POSITION);
+    bluestore_bdev_label_t *label, uint64_t disk_position);
   int _check_or_set_bdev_label(BlockDevice* bdev, const std::string& path,
                                const std::string& desc, bool create);
   int _set_main_bdev_label();
@@ -3235,7 +3235,7 @@ public:
   void inject_misreference(coll_t cid1, ghobject_t oid1,
 			   coll_t cid2, ghobject_t oid2,
 			   uint64_t offset);
-  void inject_zombie_spanning_blob(coll_t cid, ghobject_t oid, int16_t blob_id);
+  void inject_zombie_spanning_blob(coll_t cid, ghobject_t oid, blob_id_t blob_id);
   // resets global per_pool_omap in DB
   void inject_legacy_omap();
   // resets per_pool_omap | pgmeta_omap for onode
@@ -4191,37 +4191,6 @@ private:
   // non-shared extents with multiple references
   fsck_interval misreferenced_extents;
 
-};
-
-struct FragMetric {
-  // Computes fragmentation as the number of disjoint segments
-  // produced by a stream of mapped ranges.
-  // frag_score == current disjoint segment count.
-
-  std::unordered_set<uint64_t> endpoints;
-  uint64_t frag_score = 0;
-
-  FragMetric() {}
-
-  inline void note(uint64_t offset, uint64_t length) {
-    bool merge_left = endpoints.count(offset);
-    bool merge_right = endpoints.count(offset + length);
-    if (merge_left && merge_right) {
-      endpoints.erase(offset);
-      endpoints.erase(offset + length);
-      frag_score--;
-    } else if (merge_left) {
-      endpoints.erase(offset);
-      endpoints.insert(offset + length);
-    } else if (merge_right) {
-      endpoints.erase(offset + length);
-      endpoints.insert(offset);
-    } else {
-      endpoints.insert(offset);
-      endpoints.insert(offset + length);
-      frag_score++;
-    }
-  }
 };
 
 #endif

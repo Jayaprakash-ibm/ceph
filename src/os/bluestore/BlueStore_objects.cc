@@ -18,6 +18,7 @@
 #include "BlueStore.h"
 #include "BlueStore_objects.h"
 #include "os/bluestore/bluestore_types.h"
+#include "os/bluestore/bluestore_common.h"
 #include "os/kv.h"
 
 #define dout_context cct
@@ -45,7 +46,7 @@ using ceph::Formatter;
 void bluestore::Blob::set_shared_blob(BlueStore::SharedBlobRef sb) {
   ceph_assert((bool)sb);
   ceph_assert(!shared_blob);
-  ceph_assert(sb->collection = collection);
+  ceph_assert(sb->collection == collection);
   shared_blob = sb;
   ceph_assert(get_cache());
 }
@@ -160,6 +161,27 @@ bool bluestore::Blob::put_ref(
   return b.release_extents(empty, logical, r);
 }
 
+/// Signals that a range [offset~length] is no longer used.
+/// Collects allocation units that became unused into *released_disk.
+/// Returns:
+///   disk space size to release
+uint32_t bluestore::Blob::put_ref_accumulate(
+  BlueStore::Collection *coll,
+  uint32_t offset,
+  uint32_t length,
+  PExtentVector *released_disk)
+{
+  ceph_assert(length > 0);
+  uint32_t res = 0;
+  auto [in_blob_offset, in_blob_length] = used_in_blob.put_simple(offset, length);
+  if (in_blob_length != 0) {
+    bluestore_blob_t& b = dirty_blob();
+    res = b.release_extents(in_blob_offset, in_blob_length, released_disk);
+    return res;
+  }
+  return res;
+}
+
 bool bluestore::Blob::can_reuse_blob(uint32_t min_alloc_size,
                 		     uint32_t target_blob_size,
 		                     uint32_t b_offset,
@@ -227,9 +249,8 @@ bool bluestore::Blob::can_reuse_blob(uint32_t min_alloc_size,
 
     if (new_blen > blen) {
       ceph_assert(dirty_blob().is_mutable());
-      dirty_blob().add_tail(new_blen);
-      used_in_blob.add_tail(new_blen,
-                            get_blob().get_release_size(min_alloc_size));
+      add_tail(new_blen,
+               get_blob().get_release_size(min_alloc_size));
     }
   }
   return true;
@@ -293,8 +314,8 @@ void bluestore::Blob::copy_from(
     used_in_blob.init(end_roundup, min_release_size);
   } else if (bto.get_logical_length() < end_roundup) {
     ceph_assert(!bto.is_compressed());
-    bto.add_tail(end_roundup);
-    used_in_blob.add_tail(end_roundup, used_in_blob.au_size);
+    add_tail(end_roundup,
+             used_in_blob.au_size);
   }
 
   if (end_aligned >= start_roundup) {
@@ -584,8 +605,8 @@ uint32_t bluestore::Blob::merge_blob(CephContext* cct, Blob* blob_to_dissolve)
   if (dst_blob.get_logical_length() < src_blob.get_logical_length()) {
     // expand to accomodate
     ceph_assert(!dst_blob.is_compressed());
-    dst_blob.add_tail(src_blob.get_logical_length());
-    used_in_blob.add_tail(src_blob.get_logical_length(), used_in_blob.au_size);
+    add_tail(src_blob.get_logical_length(),
+             used_in_blob.au_size);
   }
   const PExtentVector& src_extents = src_blob.get_extents();
   const PExtentVector& dst_extents = dst_blob.get_extents();
@@ -735,6 +756,15 @@ void bluestore::Blob::maybe_prune_tail() {
     used_in_blob.prune_tail(get_blob().get_ondisk_capacity());
     dout(20) << __func__ << " pruned tail, now " << get_blob() << dendl;
   }
+}
+
+inline void bluestore::Blob::add_tail(
+  uint32_t new_blob_size,
+  uint32_t min_release_size)
+{
+  ceph_assert(p2phase(new_blob_size, min_release_size) == 0);
+  dirty_blob().add_tail(new_blob_size);
+  used_in_blob.add_tail(new_blob_size, min_release_size);
 }
 
 template <bool decode_csum>

@@ -80,8 +80,6 @@
 #define dout_context cct
 #define dout_subsys ceph_subsys_bluestore
 
-using bid_t = decltype(BlueStore::Blob::id);
-
 // bluestore_cache_onode
 MEMPOOL_DEFINE_OBJECT_FACTORY(BlueStore::Onode, bluestore_onode,
 			      bluestore_cache_onode);
@@ -130,6 +128,22 @@ using ceph::mono_time;
 using ceph::timespan_str;
 
 using namespace std::literals;
+
+// kv store prefixes
+const std::string PREFIX_SUPER = "S";       // field -> value
+const std::string PREFIX_STAT = "T";        // field -> value(int64 array)
+const std::string PREFIX_COLL = "C";        // collection name -> cnode_t
+const std::string PREFIX_OBJ = "O";         // object name -> onode_tCollapse commentComment on lines R92 to R96Copilot commented on Aug 6, 2026 CopilotAIon Aug 6, 2026ContributorLowMore actionsDefining these std::string constants in BlueStore.h gives them internal linkage, so every translation unit that includes this high-fanout header constructs and stores a separate copy of the whole prefix block. Keep declarations in an appropriate private header and provide a single definition in a source file (or use a suitable inline/constexpr representation) to avoid the repeated initialization and storage.ReactPositive feedbackNegative feedbackCopilot uses AI. Check for mistakes.Write a replyResolve comment
+const std::string PREFIX_OMAP = "M";        // u64 + keyname -> value
+const std::string PREFIX_PGMETA_OMAP = "P"; // u64 + keyname -> value(for meta coll)
+const std::string PREFIX_PERPOOL_OMAP = "m"; // s64 + u64 + keyname -> value
+const std::string PREFIX_PERPG_OMAP = "p";   // u64(pool) + u32(hash) + u64(id) + keyname -> value
+const std::string PREFIX_DEFERRED = "L";    // id -> deferred_transaction_t
+const std::string PREFIX_ALLOC = "B";       // u64 offset -> u64 length (freelist)
+const std::string PREFIX_ALLOC_BITMAP = "b";// (see BitmapFreelistManager)
+const std::string PREFIX_SHARED_BLOB = "X"; // u64 SB id -> shared_blob_t
+
+const string BLUESTORE_GLOBAL_STATFS_KEY = "bluestore_statfs";
 
 // Label offsets where they might be replicated. It is possible on previous versions where these offsets
 // were already used so labels won't exist there.
@@ -2861,16 +2875,16 @@ void BlueStore::ExtentMap::update(KeyValueDB::Transaction t,
   }
 }
 
-bid_t BlueStore::ExtentMap::allocate_spanning_blob_id()
+blob_id_t BlueStore::ExtentMap::allocate_spanning_blob_id()
 {
   if (spanning_blob_map.empty())
     return 0;
-  bid_t bid = spanning_blob_map.rbegin()->first + 1;
+  blob_id_t bid = spanning_blob_map.rbegin()->first + 1;
   // bid is valid and available.
   if (bid >= 0)
     return bid;
   // Find next unused bid;
-  bid = rand() % (numeric_limits<bid_t>::max() + 1);
+  bid = rand() % (numeric_limits<blob_id_t>::max() + 1);
   const auto begin_bid = bid;
   do {
     if (!spanning_blob_map.count(bid))
@@ -6074,11 +6088,11 @@ int BlueStore::_check_or_set_bdev_label(
     label.size = bdev->get_size();
     label.btime = ceph_clock_now();
     label.description = desc;
-    int r = _write_bdev_label(cct, bdev, path, label);
+    int r = _write_bdev_label(cct, bdev, path, label, {BDEV_FIRST_LABEL_POSITION});
     if (r < 0)
       return r;
   } else {
-    int r = _read_bdev_label(cct, bdev, path, &label);
+    int r = _read_bdev_label(cct, bdev, path, &label, BDEV_FIRST_LABEL_POSITION);
     if (r < 0)
       return r;
     if (cct->_conf->bluestore_debug_permit_any_bdev_label) {
@@ -8260,7 +8274,7 @@ int BlueStore::expand_devices(ostream& out)
     if (my_bdev->supported_bdev_label()) {
       string my_path = get_device_path(devid);
       bluestore_bdev_label_t my_label;
-      r = _read_bdev_label(cct, my_bdev, my_path, &my_label);
+      r = _read_bdev_label(cct, my_bdev, my_path, &my_label, BDEV_FIRST_LABEL_POSITION);
       if (r < 0) {
         derr << "unable to read label for " << my_path << ": "
               << cpp_strerror(r) << dendl;
@@ -8285,7 +8299,8 @@ int BlueStore::expand_devices(ostream& out)
 	      << " : Expanding to 0x" << std::hex << size
 	      << std::dec << "(" << byte_u_t(size) << ")"
 	      << std::endl;
-          r = _write_bdev_label(cct, my_bdev, my_path, my_label);
+          r = _write_bdev_label(cct, my_bdev, my_path, my_label,
+                {BDEV_FIRST_LABEL_POSITION});
           if (r < 0) {
             derr << "unable to write label for " << my_path << ": "
                   << cpp_strerror(r) << dendl;
@@ -11241,7 +11256,7 @@ void BlueStore::inject_misreference(coll_t cid1, ghobject_t oid1,
 }
 
 void BlueStore::inject_zombie_spanning_blob(coll_t cid, ghobject_t oid,
-                                            int16_t blob_id)
+                                            blob_id_t blob_id)
 {
   OnodeRef o;
   CollectionRef c = _get_collection(cid);

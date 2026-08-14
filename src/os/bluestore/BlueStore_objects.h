@@ -32,8 +32,8 @@ namespace bluestore {
     MEMPOOL_CLASS_HELPERS();
 
     std::atomic_int nref = {0};     ///< reference count
-    int16_t id = -1;                ///< id, for spanning blobs only, >= 0
-    int16_t last_encoded_id = -1;   ///< (ephemeral) used during encoding only
+    blob_id_t id = -1;                ///< id, for spanning blobs only, >= 0
+    blob_id_t last_encoded_id = -1;   ///< (ephemeral) used during encoding only
     BlueStore::CollectionRef collection;
 
     void set_shared_blob(BlueStore::SharedBlobRef sb);

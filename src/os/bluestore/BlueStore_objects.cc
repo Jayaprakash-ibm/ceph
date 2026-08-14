@@ -46,7 +46,7 @@ using ceph::Formatter;
 void bluestore::Blob::set_shared_blob(BlueStore::SharedBlobRef sb) {
   ceph_assert((bool)sb);
   ceph_assert(!shared_blob);
-  ceph_assert(sb->collection = collection);
+  ceph_assert(sb->collection == collection);
   shared_blob = sb;
   ceph_assert(get_cache());
 }

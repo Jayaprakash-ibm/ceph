@@ -949,7 +949,7 @@ public:
       KeyValueDB::Transaction t);
 
 
-    int16_t allocate_spanning_blob_id();
+    blob_id_t allocate_spanning_blob_id();
     void reshard(
       KeyValueDB *db,
       KeyValueDB::Transaction t,
@@ -3235,7 +3235,7 @@ public:
   void inject_misreference(coll_t cid1, ghobject_t oid1,
 			   coll_t cid2, ghobject_t oid2,
 			   uint64_t offset);
-  void inject_zombie_spanning_blob(coll_t cid, ghobject_t oid, int16_t blob_id);
+  void inject_zombie_spanning_blob(coll_t cid, ghobject_t oid, blob_id_t blob_id);
   // resets global per_pool_omap in DB
   void inject_legacy_omap();
   // resets per_pool_omap | pgmeta_omap for onode

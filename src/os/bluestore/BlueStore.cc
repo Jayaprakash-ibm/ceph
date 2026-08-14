@@ -80,8 +80,6 @@
 #define dout_context cct
 #define dout_subsys ceph_subsys_bluestore
 
-using bid_t = decltype(BlueStore::Blob::id);
-
 // bluestore_cache_onode
 MEMPOOL_DEFINE_OBJECT_FACTORY(BlueStore::Onode, bluestore_onode,
 			      bluestore_cache_onode);
@@ -2861,16 +2859,16 @@ void BlueStore::ExtentMap::update(KeyValueDB::Transaction t,
   }
 }
 
-bid_t BlueStore::ExtentMap::allocate_spanning_blob_id()
+blob_id_t BlueStore::ExtentMap::allocate_spanning_blob_id()
 {
   if (spanning_blob_map.empty())
     return 0;
-  bid_t bid = spanning_blob_map.rbegin()->first + 1;
+  blob_id_t bid = spanning_blob_map.rbegin()->first + 1;
   // bid is valid and available.
   if (bid >= 0)
     return bid;
   // Find next unused bid;
-  bid = rand() % (numeric_limits<bid_t>::max() + 1);
+  bid = rand() % (numeric_limits<blob_id_t>::max() + 1);
   const auto begin_bid = bid;
   do {
     if (!spanning_blob_map.count(bid))
@@ -11241,7 +11239,7 @@ void BlueStore::inject_misreference(coll_t cid1, ghobject_t oid1,
 }
 
 void BlueStore::inject_zombie_spanning_blob(coll_t cid, ghobject_t oid,
-                                            int16_t blob_id)
+                                            blob_id_t blob_id)
 {
   OnodeRef o;
   CollectionRef c = _get_collection(cid);

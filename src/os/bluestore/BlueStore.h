@@ -90,20 +90,20 @@ namespace bluestore {
 #define CEPH_BLUESTORE_TOOL_RESTORE_ALLOCATION
 
 // kv store prefixes
-const std::string PREFIX_SUPER = "S";       // field -> value
-const std::string PREFIX_STAT = "T";        // field -> value(int64 array)
-const std::string PREFIX_COLL = "C";        // collection name -> cnode_t
-const std::string PREFIX_OBJ = "O";         // object name -> onode_t
-const std::string PREFIX_OMAP = "M";        // u64 + keyname -> value
-const std::string PREFIX_PGMETA_OMAP = "P"; // u64 + keyname -> value(for meta coll)
-const std::string PREFIX_PERPOOL_OMAP = "m"; // s64 + u64 + keyname -> value
-const std::string PREFIX_PERPG_OMAP = "p";   // u64(pool) + u32(hash) + u64(id) + keyname -> value
-const std::string PREFIX_DEFERRED = "L";    // id -> deferred_transaction_t
-const std::string PREFIX_ALLOC = "B";       // u64 offset -> u64 length (freelist)
-const std::string PREFIX_ALLOC_BITMAP = "b";// (see BitmapFreelistManager)
-const std::string PREFIX_SHARED_BLOB = "X"; // u64 SB id -> shared_blob_t
+extern const std::string PREFIX_SUPER;
+extern const std::string PREFIX_STAT;
+extern const std::string PREFIX_COLL;
+extern const std::string PREFIX_OBJ;
+extern const std::string PREFIX_OMAP;
+extern const std::string PREFIX_PGMETA_OMAP;
+extern const std::string PREFIX_PERPOOL_OMAP;
+extern const std::string PREFIX_PERPG_OMAP;
+extern const std::string PREFIX_DEFERRED;
+extern const std::string PREFIX_ALLOC;
+extern const std::string PREFIX_ALLOC_BITMAP;
+extern const std::string PREFIX_SHARED_BLOB;
 
-const std::string BLUESTORE_GLOBAL_STATFS_KEY = "bluestore_statfs";
+extern const std::string BLUESTORE_GLOBAL_STATFS_KEY;
 
 enum {
   l_bluestore_first = 732430,

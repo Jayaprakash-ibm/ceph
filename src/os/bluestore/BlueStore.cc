@@ -129,6 +129,22 @@ using ceph::timespan_str;
 
 using namespace std::literals;
 
+// kv store prefixes
+const std::string PREFIX_SUPER = "S";       // field -> value
+const std::string PREFIX_STAT = "T";        // field -> value(int64 array)
+const std::string PREFIX_COLL = "C";        // collection name -> cnode_t
+const std::string PREFIX_OBJ = "O";         // object name -> onode_tCollapse commentComment on lines R92 to R96Copilot commented on Aug 6, 2026 CopilotAIon Aug 6, 2026ContributorLowMore actionsDefining these std::string constants in BlueStore.h gives them internal linkage, so every translation unit that includes this high-fanout header constructs and stores a separate copy of the whole prefix block. Keep declarations in an appropriate private header and provide a single definition in a source file (or use a suitable inline/constexpr representation) to avoid the repeated initialization and storage.ReactPositive feedbackNegative feedbackCopilot uses AI. Check for mistakes.Write a replyResolve comment
+const std::string PREFIX_OMAP = "M";        // u64 + keyname -> value
+const std::string PREFIX_PGMETA_OMAP = "P"; // u64 + keyname -> value(for meta coll)
+const std::string PREFIX_PERPOOL_OMAP = "m"; // s64 + u64 + keyname -> value
+const std::string PREFIX_PERPG_OMAP = "p";   // u64(pool) + u32(hash) + u64(id) + keyname -> value
+const std::string PREFIX_DEFERRED = "L";    // id -> deferred_transaction_t
+const std::string PREFIX_ALLOC = "B";       // u64 offset -> u64 length (freelist)
+const std::string PREFIX_ALLOC_BITMAP = "b";// (see BitmapFreelistManager)
+const std::string PREFIX_SHARED_BLOB = "X"; // u64 SB id -> shared_blob_t
+
+const string BLUESTORE_GLOBAL_STATFS_KEY = "bluestore_statfs";
+
 // Label offsets where they might be replicated. It is possible on previous versions where these offsets
 // were already used so labels won't exist there.
 static constexpr uint64_t _1G = uint64_t(1024)*1024*1024;

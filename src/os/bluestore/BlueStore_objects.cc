@@ -18,6 +18,7 @@
 #include "BlueStore.h"
 #include "BlueStore_objects.h"
 #include "os/bluestore/bluestore_types.h"
+#include "os/bluestore/bluestore_common.h"
 #include "os/kv.h"
 
 #define dout_context cct

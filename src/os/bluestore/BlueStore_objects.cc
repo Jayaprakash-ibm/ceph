@@ -248,9 +248,8 @@ bool bluestore::Blob::can_reuse_blob(uint32_t min_alloc_size,
 
     if (new_blen > blen) {
       ceph_assert(dirty_blob().is_mutable());
-      dirty_blob().add_tail(new_blen);
-      used_in_blob.add_tail(new_blen,
-                            get_blob().get_release_size(min_alloc_size));
+      add_tail(new_blen,
+               get_blob().get_release_size(min_alloc_size));
     }
   }
   return true;
@@ -314,8 +313,8 @@ void bluestore::Blob::copy_from(
     used_in_blob.init(end_roundup, min_release_size);
   } else if (bto.get_logical_length() < end_roundup) {
     ceph_assert(!bto.is_compressed());
-    bto.add_tail(end_roundup);
-    used_in_blob.add_tail(end_roundup, used_in_blob.au_size);
+    add_tail(end_roundup,
+             used_in_blob.au_size);
   }
 
   if (end_aligned >= start_roundup) {
@@ -605,8 +604,8 @@ uint32_t bluestore::Blob::merge_blob(CephContext* cct, Blob* blob_to_dissolve)
   if (dst_blob.get_logical_length() < src_blob.get_logical_length()) {
     // expand to accomodate
     ceph_assert(!dst_blob.is_compressed());
-    dst_blob.add_tail(src_blob.get_logical_length());
-    used_in_blob.add_tail(src_blob.get_logical_length(), used_in_blob.au_size);
+    add_tail(src_blob.get_logical_length(),
+             used_in_blob.au_size);
   }
   const PExtentVector& src_extents = src_blob.get_extents();
   const PExtentVector& dst_extents = dst_blob.get_extents();

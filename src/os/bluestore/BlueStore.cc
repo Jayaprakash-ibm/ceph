@@ -507,7 +507,7 @@ static void rewrite_extent_shard_key(uint32_t offset, string *key)
 }
 
 template<typename S>
-static void generate_extent_shard_key_and_apply(
+void generate_extent_shard_key_and_apply(
   const S& onode_key,
   uint32_t offset,
   string *key,
@@ -521,6 +521,10 @@ static void generate_extent_shard_key_and_apply(
   }
   apply(*key);
 }
+
+template void generate_extent_shard_key_and_apply<std::string>(
+  const std::string&, uint32_t, std::string*,
+  std::function<void(const std::string&)>);
 
 int get_key_extent_shard(const string& key, string *onode_key, uint32_t *offset)
 {
@@ -618,6 +622,10 @@ void _dump_onode(CephContext *cct, const BlueStore::Onode& o)
                     << dendl;
   }
 }
+
+template void _dump_onode<0>(CephContext*, const BlueStore::Onode&);
+template void _dump_onode<25>(CephContext*, const BlueStore::Onode&);
+template void _dump_extent_map<-1>(CephContext*, const BlueStore::ExtentMap&);
 
 template <int LogLevelV>
 void _dump_transaction(CephContext *cct, ObjectStore::Transaction *t)

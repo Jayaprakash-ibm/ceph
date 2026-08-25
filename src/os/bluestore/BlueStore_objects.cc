@@ -44,6 +44,13 @@ using ceph::Formatter;
 
 using bid_t = decltype(bluestore::Blob::id);
 
+extern template void generate_extent_shard_key_and_apply<std::string>(
+  const std::string&, uint32_t, std::string*,
+  std::function<void(const std::string&)>);
+extern template void _dump_onode<0>(CephContext*, const BlueStore::Onode&);
+extern template void _dump_onode<25>(CephContext*, const BlueStore::Onode&);
+extern template void _dump_extent_map<-1>(CephContext*, const BlueStore::ExtentMap&);
+
 // Blob
 
 #undef dout_prefix

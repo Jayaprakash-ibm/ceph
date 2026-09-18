@@ -16,11 +16,12 @@
 #define BLUESTORE_WRITER
 
 #include "BlueStore.h"
+#include "BlueStore_objects.h"
 #include "Allocator.h"
 
 class BlueStore::Writer {
 public:
-  using exmp_it = extent_map_t::iterator;
+  using exmp_it = bluestore::extent_map_t::iterator;
   using P = BlueStore::printer;
 
   // Data that is to be put to object.

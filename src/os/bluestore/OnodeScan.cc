@@ -12,7 +12,6 @@
  */
 #include "BlueStore.h"
 #include "BlueStore_objects.h"
-#include "BlueStore_inlines.h"
 #include "common/pretty_binary.h"
 #include "simple_bitmap.h"
 #include "common/debug.h"
@@ -53,8 +52,7 @@ struct bool_vector_t {
   }
 };
 
-class BlueStore::Decoder_AllocationsAndStatFS : public BlueStore::ExtentMap::ExtentDecoder {
-  using Extent = BlueStore::Extent;
+class BlueStore::Decoder_AllocationsAndStatFS : public ExtentMap::ExtentDecoder {
   BlueStore &store;
   read_alloc_stats_t &stats;
   SimpleBitmap &sbmap;
